@@ -8,7 +8,7 @@ what Claude does or what Claude reads.
 
 | Piece | What you see |
 |---|---|
-| Prompt box | Each of your messages sits in a gold box labelled `OPERATOR // UPLINK: <your login name>`, with a shield icon |
+| Prompt box | Each of your messages sits in a gold box labelled `OPERATOR // UPLINK: <your Claude account email>`, with a shield icon |
 | Queued messages | A message you type while Claude is still working sits in a slate-blue box labelled `OPERATOR // QUEUED:`. It turns gold when Claude has been handed it |
 | Reply header | The first block of each reply is headed `CLAUDE // DOWNLINK`, with a robot icon |
 | Quiet tool rows | Each tool call is one line saying what it is for: `▸` running, `✓` finished, `✗` failed. Output is hidden unless the call failed |
@@ -82,6 +82,10 @@ claude plugin test .
 
 ## Known limits
 
+- The label shows the email of the account signed in to Claude Code. Claude
+  Code names that account when a conversation's first message is sent, so on a
+  machine's very first session the label shows the machine login name until
+  then. After that the account is remembered.
 - Quiet rows cannot be expanded with ctrl+o. Use `/sbs quiet` to see the detail.
 - With quiet rows off and colouring on, a long shell result shows its first 20
   lines and a count of the rest.
@@ -107,5 +111,6 @@ given a test. Changes made after the last review pass have not been seen by a
 reviewer: the final two fixes (delivered-message matching and mixed MCP
 results), the slate-blue queue colour, the icons, the rename to `sbs-deck`, and
 the 1.0.1 spinner fix (a phrase could stay scrambled for the rest of a turn
-after the spinner had been off screen). The test suite passes, 19 tests, on
+after the spinner had been off screen) and the account name in the label. The
+test suite passes, 20 tests, on
 Claude Code 2.1.289.

@@ -598,3 +598,32 @@ test('a phrase still resolves after the spinner has been away mid-turn', async (
   expect(SPINNER_PHRASES['tool-use']).toContain(word)
   await later.unmount()
 })
+
+test('the label names the account signed in to Claude Code, not the login name', async ($, on) => {
+  mock.store(on)
+  on('prompt.context', ($, e) => ({ blocks: e.blocks }))
+  on('ui.render', { component: 'UserMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.text}</Text>
+  })
+
+  await $.prompt.context({
+    blocks: [
+      {
+        name: 'userEmail',
+        text: "The user's email address is pat.doe@example.io. Use it only to identify the user.",
+      },
+    ],
+  })
+
+  const row = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text: 'hello there', origin: { kind: 'composer' }, isExpanded: false },
+  })
+  expect(await row.find({ type: 'Text', text: 'pat.doe@example.io' })).toBeDefined()
+  expect((await row.find({ type: 'Text', text: 'pat.doe@example.io' }))?.text.endsWith('.io')).toBe(true)
+  await row.unmount()
+})

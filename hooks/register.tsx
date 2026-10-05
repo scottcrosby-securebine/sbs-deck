@@ -228,8 +228,12 @@ export const register: Register = on => {
   }
   let spinnerMode: SpinnerMode | undefined
   let phraseSince = 0
-  // The login name shown beside OPERATOR, read once the session starts.
+  // Who is shown beside OPERATOR: the account signed in to Claude Code, by its
+  // email, once the engine has named it (it does so in the context of a
+  // conversation's first message; the last one seen is kept in the store). The
+  // machine's login name stands in until then.
   let username = 'unknown'
+  let account: string | undefined
   let isColouring = true
 
   on('session.start', async ($, e, next) => {
@@ -242,6 +246,12 @@ export const register: Register = on => {
       description: 'Turn pattern colouring of command output on or off',
     })
     username = (await $.env.get('USER')) ?? username
+
+    const savedAccount = await $.store.get('account')
+
+    if (typeof savedAccount === 'string' && savedAccount.length > 0) {
+      account = savedAccount
+    }
     isEnabled = (await $.store.get('isEnabled')) !== false
     isColouring = (await $.store.get('isColouring')) !== false
     isQuiet = (await $.store.get('isQuiet')) !== false
@@ -289,6 +299,19 @@ export const register: Register = on => {
     $.ui.invalidate('ui.render')
 
     return { text: `Output colouring is ${isColouring ? 'on' : 'off'}.` }
+  })
+
+  on('prompt.context', async ($, e, next) => {
+    const block = e.blocks.find(one => one.name === 'userEmail')
+    const email = block?.text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/)?.[0]
+
+    if (email !== undefined && email !== account) {
+      account = email
+      await $.store.set('account', email)
+      $.ui.invalidate('ui.render')
+    }
+
+    return next(e)
   })
 
   on('prompt.submit', ($, e, next) => {
@@ -390,7 +413,7 @@ export const register: Register = on => {
           <Text bold color={accent}>
             OPERATOR // {isWaiting ? 'QUEUED' : 'UPLINK'}:
           </Text>
-          <Text color={INK_DIM}> {username}</Text>
+          <Text color={INK_DIM}> {account ?? username}</Text>
         </Box>
         {/* The engine's row opens with a blank line; the eyebrow takes it. */}
         <Box flexDirection="column" marginTop={-1}>
