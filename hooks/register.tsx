@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { Register, Timer } from 'claude-code'
+import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import { cleanLine, colourLine } from './colour'
 import { decrypt, phraseFor, scanBar } from './spinner'
@@ -188,6 +188,31 @@ function deliveredByAttachment(waiting: ReadonlySet<string>, text: string): stri
     .filter(payload => waiting.has(payload))
 }
 
+// The email of the account signed in to Claude Code, from the same record the
+// status line reads: `oauthAccount.emailAddress` in `.claude.json`.
+async function signedInAccount($: EngineInterface): Promise<string | undefined> {
+  try {
+    const directory = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? (await $.env.get('HOME'))
+    const record: unknown = JSON.parse(await $.fs.read(`${directory}/.claude.json`))
+
+    if (typeof record !== 'object' || record === null || !('oauthAccount' in record)) {
+      return undefined
+    }
+
+    const signedIn = record.oauthAccount
+
+    return typeof signedIn === 'object' &&
+      signedIn !== null &&
+      'emailAddress' in signedIn &&
+      typeof signedIn.emailAddress === 'string' &&
+      signedIn.emailAddress.length > 0
+      ? signedIn.emailAddress
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export const register: Register = on => {
   // Which reply block opens each turn, so the header draws once per turn and
   // not on every text block between tool calls. Saved to the store as each
@@ -229,9 +254,8 @@ export const register: Register = on => {
   let spinnerMode: SpinnerMode | undefined
   let phraseSince = 0
   // Who is shown beside OPERATOR: the account signed in to Claude Code, by its
-  // email, once the engine has named it (it does so in the context of a
-  // conversation's first message; the last one seen is kept in the store). The
-  // machine's login name stands in until then.
+  // email, read again at every turn so a new sign-in shows at once. The
+  // machine's login name stands in where no account can be read.
   let username = 'unknown'
   let account: string | undefined
   let isColouring = true
@@ -247,11 +271,7 @@ export const register: Register = on => {
     })
     username = (await $.env.get('USER')) ?? username
 
-    const savedAccount = await $.store.get('account')
-
-    if (typeof savedAccount === 'string' && savedAccount.length > 0) {
-      account = savedAccount
-    }
+    account = await signedInAccount($)
     isEnabled = (await $.store.get('isEnabled')) !== false
     isColouring = (await $.store.get('isColouring')) !== false
     isQuiet = (await $.store.get('isQuiet')) !== false
@@ -301,20 +321,14 @@ export const register: Register = on => {
     return { text: `Output colouring is ${isColouring ? 'on' : 'off'}.` }
   })
 
-  on('prompt.context', async ($, e, next) => {
-    const block = e.blocks.find(one => one.name === 'userEmail')
-    const email = block?.text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/)?.[0]
+  on('prompt.submit', async ($, e, next) => {
+    const current = await signedInAccount($)
 
-    if (email !== undefined && email !== account) {
-      account = email
-      await $.store.set('account', email)
+    if (current !== account) {
+      account = current
       $.ui.invalidate('ui.render')
     }
 
-    return next(e)
-  })
-
-  on('prompt.submit', ($, e, next) => {
     // A prompt typed while a turn was running carries that turn's id.
     if (e.turnId !== undefined && (e.origin.kind === 'composer' || e.origin.kind === 'bridge')) {
       waitingPrompts.add(comparable(e.text))

@@ -599,31 +599,42 @@ test('a phrase still resolves after the spinner has been away mid-turn', async (
   await later.unmount()
 })
 
-test('the label names the account signed in to Claude Code, not the login name', async ($, on) => {
+test('the label names the account signed in to Claude Code and follows a new sign-in', async ($, on) => {
   mock.store(on)
-  on('prompt.context', ($, e) => ({ blocks: e.blocks }))
+  mock.env(on, { HOME: '/home/tester', USER: 'tester' })
+  let signedIn = 'pat.doe@example.io'
+  let pathRead = ''
+  on('fs.read', ($, e) => {
+    pathRead = e.path
+
+    return { value: JSON.stringify({ oauthAccount: { emailAddress: signedIn } }) }
+  })
+  on('prompt.submit', ($, e) => ({ text: e.text }))
   on('ui.render', { component: 'UserMessage' }, ($, e) => {
     const { Text } = $.ui.resolve(e)
 
     return <Text>{e.props.text}</Text>
   })
 
-  await $.prompt.context({
-    blocks: [
-      {
-        name: 'userEmail',
-        text: "The user's email address is pat.doe@example.io. Use it only to identify the user.",
-      },
-    ],
-  })
+  const row = () =>
+    $.ui.mount({
+      plugin: 'sbs-deck',
+      surface: 'terminal',
+      component: 'UserMessage',
+      props: { text: 'hello there', origin: { kind: 'composer' }, isExpanded: false },
+    })
 
-  const row = await $.ui.mount({
-    plugin: 'sbs-deck',
-    surface: 'terminal',
-    component: 'UserMessage',
-    props: { text: 'hello there', origin: { kind: 'composer' }, isExpanded: false },
-  })
-  expect(await row.find({ type: 'Text', text: 'pat.doe@example.io' })).toBeDefined()
-  expect((await row.find({ type: 'Text', text: 'pat.doe@example.io' }))?.text.endsWith('.io')).toBe(true)
-  await row.unmount()
+  await $.prompt.submit({ text: 'hello there', wait: false, origin: { kind: 'composer' } })
+  expect(pathRead).toBe('/home/tester/.claude.json')
+  const first = await row()
+  expect(await first.find({ type: 'Text', text: 'pat.doe@example.io' })).toBeDefined()
+  await first.unmount()
+
+  // Signed in as someone else: the very next prompt shows it.
+  signedIn = 'sam.roe@example.io'
+  await $.prompt.submit({ text: 'hello there', wait: false, origin: { kind: 'composer' } })
+  const second = await row()
+  expect(await second.find({ type: 'Text', text: 'sam.roe@example.io' })).toBeDefined()
+  expect(await second.find({ type: 'Text', text: 'pat.doe@example.io' })).toBeUndefined()
+  await second.unmount()
 })

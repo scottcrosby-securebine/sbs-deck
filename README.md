@@ -82,10 +82,10 @@ claude plugin test .
 
 ## Known limits
 
-- The label shows the email of the account signed in to Claude Code. Claude
-  Code names that account when a conversation's first message is sent, so on a
-  machine's very first session the label shows the machine login name until
-  then. After that the account is remembered.
+- The label shows the email of the account signed in to Claude Code, read
+  from `.claude.json` (the record the status line uses) each time you send a
+  prompt, so a new sign-in shows on your next message. Where that record
+  cannot be read, the machine login name is shown.
 - Quiet rows cannot be expanded with ctrl+o. Use `/sbs quiet` to see the detail.
 - With quiet rows off and colouring on, a long shell result shows its first 20
   lines and a count of the rest.
