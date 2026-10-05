@@ -213,6 +213,15 @@ async function signedInAccount($: EngineInterface): Promise<string | undefined> 
   }
 }
 
+const SBS_USAGE = [
+  '/sbs on | off          all the styling',
+  '/sbs normal            stock Claude Code (the same as off)',
+  '/sbs reset             styling on with its defaults: quiet on, colour on',
+  '/sbs quiet on | off    one-line tool rows with output hidden',
+  '/sbs colour on | off   pattern colouring of output (seen with quiet off)',
+  '/sbs status            what is on now',
+].join('\n')
+
 export const register: Register = on => {
   // Which reply block opens each turn, so the header draws once per turn and
   // not on every text block between tool calls. Saved to the store as each
@@ -263,7 +272,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'sbs',
-      description: 'SecureBine styling: /sbs on, off, quiet, colour, or /sbs to toggle',
+      description: 'SecureBine styling: on, off, normal, reset, quiet on|off, colour on|off, status',
     })
     await $.command.register({
       name: 'sbs-colour',
@@ -291,26 +300,39 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'sbs' }, async ($, e) => {
-    const wanted = e.args.trim().toLowerCase()
+    const [what = '', how = ''] = e.args.trim().toLowerCase().split(/\s+/)
+    const status = () =>
+      `Styling is ${isEnabled ? 'on' : 'off'}; quiet tool rows are ${isQuiet ? 'on' : 'off'}; output colouring is ${isColouring ? 'on' : 'off'}.`
 
-    if (wanted === 'colour' || wanted === 'color') {
-      isColouring = !isColouring
-      await $.store.set('isColouring', isColouring)
-    } else if (wanted === 'quiet') {
-      isQuiet = !isQuiet
-      await $.store.set('isQuiet', isQuiet)
-    } else if (wanted === '' || wanted === 'on' || wanted === 'off') {
-      isEnabled = wanted === '' ? !isEnabled : wanted === 'on'
-      await $.store.set('isEnabled', isEnabled)
-    } else {
-      return { text: `Unknown option "${wanted}". Use /sbs on, off, quiet or colour; /sbs alone toggles.` }
+    // On or off as asked; with neither word, the opposite of what it is now.
+    const setting = (current: boolean): boolean | undefined =>
+      how === 'on' ? true : how === 'off' ? false : how === '' ? !current : undefined
+
+    if (what === '' || what === 'status') {
+      return { text: `${status()}\n${SBS_USAGE}` }
     }
 
+    if ((what === 'on' || what === 'off' || what === 'normal' || what === 'reset') && how === '') {
+      isEnabled = what === 'on' || what === 'reset'
+
+      if (what === 'reset') {
+        isQuiet = true
+        isColouring = true
+      }
+    } else if (what === 'quiet' && setting(isQuiet) !== undefined) {
+      isQuiet = setting(isQuiet) ?? isQuiet
+    } else if ((what === 'colour' || what === 'color') && setting(isColouring) !== undefined) {
+      isColouring = setting(isColouring) ?? isColouring
+    } else {
+      return { text: `Unknown option "${e.args.trim()}".\n${SBS_USAGE}` }
+    }
+
+    await $.store.set('isEnabled', isEnabled)
+    await $.store.set('isQuiet', isQuiet)
+    await $.store.set('isColouring', isColouring)
     $.ui.invalidate('ui.render')
 
-    return {
-      text: `SecureBine styling is ${isEnabled ? 'on' : 'off'}; quiet tool rows are ${isQuiet ? 'on' : 'off'}; output colouring is ${isColouring ? 'on' : 'off'}.`,
-    }
+    return { text: status() }
   })
 
   on('command.run', { command: 'sbs-colour' }, async $ => {

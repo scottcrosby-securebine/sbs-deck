@@ -56,13 +56,16 @@ claude plugin install sbs-deck@sbs-deck
 
 | Command | Effect |
 |---|---|
-| `/sbs` | Turn all the styling off or back on |
-| `/sbs on`, `/sbs off` | The same, explicitly |
-| `/sbs quiet` | Switch quiet tool rows off or on. Off, you see full commands and their output |
-| `/sbs colour` | Switch the pattern colouring of output off or on |
+| `/sbs` or `/sbs status` | Show what is on now, and this list. Changes nothing |
+| `/sbs on`, `/sbs off` | All the styling on or off |
+| `/sbs normal` | Stock Claude Code. The same as `/sbs off` |
+| `/sbs reset` | Styling on with its defaults: quiet on, colour on |
+| `/sbs quiet on`, `/sbs quiet off` | One-line tool rows with output hidden, or full commands and their output |
+| `/sbs colour on`, `/sbs colour off` | Pattern colouring of output. Only seen with quiet off |
 
-The settings are remembered per machine. The colour theme is separate: change
-it with `/theme`.
+`/sbs quiet` and `/sbs colour` with no second word flip that switch. The
+settings are remembered per machine. The colour theme is separate: change it
+with `/theme`.
 
 ## Changing it
 
@@ -112,5 +115,5 @@ reviewer: the final two fixes (delivered-message matching and mixed MCP
 results), the slate-blue queue colour, the icons, the rename to `sbs-deck`, and
 the 1.0.1 spinner fix (a phrase could stay scrambled for the rest of a turn
 after the spinner had been off screen) and the account name in the label. The
-test suite passes, 20 tests, on
+test suite passes, 21 tests, on
 Claude Code 2.1.289.

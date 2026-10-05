@@ -638,3 +638,25 @@ test('the label names the account signed in to Claude Code and follows a new sig
   expect(await second.find({ type: 'Text', text: 'pat.doe@example.io' })).toBeUndefined()
   await second.unmount()
 })
+
+test('/sbs sets each switch by name, shows status, and resets', async ($, on) => {
+  mock.store(on)
+  const sbs = async (args: string) =>
+    JSON.stringify(
+      await $.command.run({
+        command: 'sbs',
+        args,
+        origin: { kind: 'composer' },
+        presentation: { isFullscreen: false, columns: 120 },
+      }),
+    )
+
+  expect(await sbs('')).toContain('Styling is on; quiet tool rows are on; output colouring is on.')
+  expect(await sbs('quiet off')).toContain('quiet tool rows are off')
+  expect(await sbs('quiet off')).toContain('quiet tool rows are off')
+  expect(await sbs('colour off')).toContain('output colouring is off')
+  expect(await sbs('normal')).toContain('Styling is off')
+  expect(await sbs('status')).toContain('Styling is off; quiet tool rows are off; output colouring is off.')
+  expect(await sbs('quiet sideways')).toContain('Unknown option')
+  expect(await sbs('reset')).toContain('Styling is on; quiet tool rows are on; output colouring is on.')
+})
