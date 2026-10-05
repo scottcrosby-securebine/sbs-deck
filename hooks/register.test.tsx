@@ -134,7 +134,7 @@ test('reply headers are saved when a turn completes and restored at start', asyn
   expect(stored.turnOpeners).toEqual(['old-opener', 'new-opener'])
 })
 
-test('a shell result is drawn with its patterns coloured', async ($, on) => {
+test('a shell result is drawn with its patterns colored', async ($, on) => {
   mock.store(on)
   await quietOff($)
   const ui = await $.ui.mount({
@@ -150,11 +150,11 @@ test('a shell result is drawn with its patterns coloured', async ($, on) => {
   })
   // `find` matches by inclusion, so the line's own Text matches too: the span
   // is the one whose whole text is the token.
-  const colourOf = async (token: string) =>
+  const colorOf = async (token: string) =>
     (await ui.findAll({ type: 'Text', text: token })).find(found => found.text === token)?.props.color
-  expect(await colourOf('10.0.0.1/24')).toBe('#00E5FF')
-  expect(await colourOf('up')).toBe('#3EE08A')
-  expect(await colourOf('Gi0/1')).toBe('#F5A701')
+  expect(await colorOf('10.0.0.1/24')).toBe('#00E5FF')
+  expect(await colorOf('up')).toBe('#3EE08A')
+  expect(await colorOf('Gi0/1')).toBe('#F5A701')
   expect(await ui.find({ type: 'Text', text: 'plain line' })).toBeDefined()
   await ui.unmount()
 })
@@ -651,12 +651,12 @@ test('/sbs sets each switch by name, shows status, and resets', async ($, on) =>
       }),
     )
 
-  expect(await sbs('')).toContain('Styling is on; quiet tool rows are on; output colouring is on.')
+  expect(await sbs('')).toContain('Styling is on; quiet tool rows are on; output coloring is on.')
   expect(await sbs('quiet off')).toContain('quiet tool rows are off')
   expect(await sbs('quiet off')).toContain('quiet tool rows are off')
-  expect(await sbs('colour off')).toContain('output colouring is off')
+  expect(await sbs('color off')).toContain('output coloring is off')
   expect(await sbs('normal')).toContain('Styling is off')
-  expect(await sbs('status')).toContain('Styling is off; quiet tool rows are off; output colouring is off.')
+  expect(await sbs('status')).toContain('Styling is off; quiet tool rows are off; output coloring is off.')
   expect(await sbs('quiet sideways')).toContain('Unknown option')
-  expect(await sbs('reset')).toContain('Styling is on; quiet tool rows are on; output colouring is on.')
+  expect(await sbs('reset')).toContain('Styling is on; quiet tool rows are on; output coloring is on.')
 })

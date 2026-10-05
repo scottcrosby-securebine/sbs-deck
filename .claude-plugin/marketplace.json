@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "sbs-deck",
-      "description": "Labelled prompt boxes, queued-message colours, quiet tool rows, coloured command output and a science-fiction spinner",
+      "description": "Labelled prompt boxes, queued-message colors, quiet tool rows, colored command output and a science-fiction spinner",
       "source": "./"
     }
   ]

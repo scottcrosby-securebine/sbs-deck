@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import { cleanLine, colourLine } from './colour'
+import { cleanLine, colorLine } from './color'
 import { decrypt, phraseFor, scanBar } from './spinner'
 import type { SpinnerMode } from './spinner'
 
@@ -31,7 +31,7 @@ const MAX_TRACKED_REPLIES = 4000
 // ended without `turn.complete` must not leave it running.
 const IDLE_TICKS = 40
 
-// How many lines of a result are drawn coloured before the rest is counted.
+// How many lines of a result are drawn colored before the rest is counted.
 const MAX_RESULT_LINES = 20
 
 function textOfBlocks(blocks: readonly unknown[]): string | undefined {
@@ -216,9 +216,9 @@ async function signedInAccount($: EngineInterface): Promise<string | undefined> 
 const SBS_USAGE = [
   '/sbs on | off          all the styling',
   '/sbs normal            stock Claude Code (the same as off)',
-  '/sbs reset             styling on with its defaults: quiet on, colour on',
+  '/sbs reset             styling on with its defaults: quiet on, color on',
   '/sbs quiet on | off    one-line tool rows with output hidden',
-  '/sbs colour on | off   pattern colouring of output (seen with quiet off)',
+  '/sbs color on | off   pattern coloring of output (seen with quiet off)',
   '/sbs status            what is on now',
 ].join('\n')
 
@@ -238,9 +238,9 @@ export const register: Register = on => {
   const waitingPrompts = new Set<string>()
 
   // The switches, kept in the plugin's store so they hold across sessions: the
-  // whole mod, quiet tool rows, and the pattern colouring of results. A result
+  // whole mod, quiet tool rows, and the pattern coloring of results. A result
   // row is the engine's own again, folding and ctrl+o with it, only with quiet
-  // and colouring both off.
+  // and coloring both off.
   let isEnabled = true
   // Quiet: each tool call is one line saying what it is for, and its output is
   // not drawn unless it failed.
@@ -267,22 +267,22 @@ export const register: Register = on => {
   // machine's login name stands in where no account can be read.
   let username = 'unknown'
   let account: string | undefined
-  let isColouring = true
+  let isColoring = true
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'sbs',
-      description: 'SecureBine styling: on, off, normal, reset, quiet on|off, colour on|off, status',
+      description: 'SecureBine styling: on, off, normal, reset, quiet on|off, color on|off, status',
     })
     await $.command.register({
-      name: 'sbs-colour',
-      description: 'Turn pattern colouring of command output on or off',
+      name: 'sbs-color',
+      description: 'Turn pattern coloring of command output on or off',
     })
     username = (await $.env.get('USER')) ?? username
 
     account = await signedInAccount($)
     isEnabled = (await $.store.get('isEnabled')) !== false
-    isColouring = (await $.store.get('isColouring')) !== false
+    isColoring = (await $.store.get('isColoring')) !== false
     isQuiet = (await $.store.get('isQuiet')) !== false
 
     const savedOpeners = await $.store.get('turnOpeners')
@@ -302,7 +302,7 @@ export const register: Register = on => {
   on('command.run', { command: 'sbs' }, async ($, e) => {
     const [what = '', how = ''] = e.args.trim().toLowerCase().split(/\s+/)
     const status = () =>
-      `Styling is ${isEnabled ? 'on' : 'off'}; quiet tool rows are ${isQuiet ? 'on' : 'off'}; output colouring is ${isColouring ? 'on' : 'off'}.`
+      `Styling is ${isEnabled ? 'on' : 'off'}; quiet tool rows are ${isQuiet ? 'on' : 'off'}; output coloring is ${isColoring ? 'on' : 'off'}.`
 
     // On or off as asked; with neither word, the opposite of what it is now.
     const setting = (current: boolean): boolean | undefined =>
@@ -317,30 +317,30 @@ export const register: Register = on => {
 
       if (what === 'reset') {
         isQuiet = true
-        isColouring = true
+        isColoring = true
       }
     } else if (what === 'quiet' && setting(isQuiet) !== undefined) {
       isQuiet = setting(isQuiet) ?? isQuiet
-    } else if ((what === 'colour' || what === 'color') && setting(isColouring) !== undefined) {
-      isColouring = setting(isColouring) ?? isColouring
+    } else if ((what === 'color' || what === 'colour') && setting(isColoring) !== undefined) {
+      isColoring = setting(isColoring) ?? isColoring
     } else {
       return { text: `Unknown option "${e.args.trim()}".\n${SBS_USAGE}` }
     }
 
     await $.store.set('isEnabled', isEnabled)
     await $.store.set('isQuiet', isQuiet)
-    await $.store.set('isColouring', isColouring)
+    await $.store.set('isColoring', isColoring)
     $.ui.invalidate('ui.render')
 
     return { text: status() }
   })
 
-  on('command.run', { command: 'sbs-colour' }, async $ => {
-    isColouring = !isColouring
-    await $.store.set('isColouring', isColouring)
+  on('command.run', { command: 'sbs-color' }, async $ => {
+    isColoring = !isColoring
+    await $.store.set('isColoring', isColoring)
     $.ui.invalidate('ui.render')
 
-    return { text: `Output colouring is ${isColouring ? 'on' : 'off'}.` }
+    return { text: `Output coloring is ${isColoring ? 'on' : 'off'}.` }
   })
 
   on('prompt.submit', async ($, e, next) => {
@@ -515,9 +515,9 @@ export const register: Register = on => {
     )
   })
 
-  // With quiet off, shell and MCP results are drawn here, coloured by pattern.
+  // With quiet off, shell and MCP results are drawn here, colored by pattern.
   // The engine's own folding (ctrl+o) is not available to a hook-drawn row, so
-  // a long result shows its head and a count; with quiet off, /sbs colour hands
+  // a long result shows its head and a count; with quiet off, /sbs color hands
   // those rows back to the engine.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     if (!isEnabled) {
@@ -533,7 +533,7 @@ export const register: Register = on => {
 
     const { Box, Text } = $.ui.resolve(e)
     const isOurs = e.props.tool === 'Bash' || e.props.tool.startsWith('mcp__')
-    const text = isColouring && isOurs && !e.props.isErrored ? textOfOutput(e.props.output) : undefined
+    const text = isColoring && isOurs && !e.props.isErrored ? textOfOutput(e.props.output) : undefined
     const lines = text?.replace(/\s+$/, '').split('\n').map(cleanLine) ?? []
 
     if (lines.length === 0 || lines.every(line => line.trim().length === 0)) {
@@ -548,7 +548,7 @@ export const register: Register = on => {
         <Box flexDirection="column" flexGrow={1} flexShrink={1}>
           {lines.slice(0, MAX_RESULT_LINES).map(line => (
             <Text wrap="wrap">
-              {colourLine(line).map(segment =>
+              {colorLine(line).map(segment =>
                 segment.style ? (
                   <Text
                     color={segment.style.color}
@@ -565,7 +565,7 @@ export const register: Register = on => {
           ))}
           {hidden > 0 ? (
             <Text color={INK_DIM}>
-              … +{hidden} lines (/sbs colour for the full uncoloured view)
+              … +{hidden} lines (/sbs color for the full uncolored view)
             </Text>
           ) : null}
         </Box>

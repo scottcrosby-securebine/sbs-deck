@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Points Claude Code at this folder so it loads sbs-deck in every session.
-# With --theme, also installs and selects the SecureBine colour theme.
+# With --theme, also installs and selects the SecureBine color theme.
 #
 #   ./install.sh            load the mod
 #   ./install.sh --theme    load the mod and switch to the SecureBine theme

@@ -12,7 +12,7 @@ what Claude does or what Claude reads.
 | Queued messages | A message you type while Claude is still working sits in a slate-blue box labelled `OPERATOR // QUEUED:`. It turns gold when Claude has been handed it |
 | Reply header | The first block of each reply is headed `CLAUDE // DOWNLINK`, with a robot icon |
 | Quiet tool rows | Each tool call is one line saying what it is for: `▸` running, `✓` finished, `✗` failed. Output is hidden unless the call failed |
-| Coloured output | With quiet rows off, shell and MCP output is coloured by pattern: up/down states, IP and MAC addresses, interface names, numbers with units, paths, JSON |
+| Colored output | With quiet rows off, shell and MCP output is colored by pattern: up/down states, IP and MAC addresses, interface names, numbers with units, paths, JSON |
 | Spinner | While Claude works, a science-fiction phrase for what it is doing decrypts out of noise, with a scanning bar. A new phrase each time the state changes |
 
 The spinner has 295 phrases across five states (connecting, thinking, setting up
@@ -39,7 +39,7 @@ Then start a new Claude Code session.
 
 `install.sh` adds this folder to `CLAUDE_CODE_PLUGIN_DIRS` in
 `~/.claude/settings.json`, after backing the file up. `--theme` also installs
-the SecureBine colour theme (prompt border, accents and diff colours) and
+the SecureBine color theme (prompt border, accents and diff colors) and
 selects it; leave the flag off to keep your current theme.
 
 To update a machine: `git pull` in the folder. Claude Code watches it, so a
@@ -59,22 +59,22 @@ claude plugin install sbs-deck@sbs-deck
 | `/sbs` or `/sbs status` | Show what is on now, and this list. Changes nothing |
 | `/sbs on`, `/sbs off` | All the styling on or off |
 | `/sbs normal` | Stock Claude Code. The same as `/sbs off` |
-| `/sbs reset` | Styling on with its defaults: quiet on, colour on |
+| `/sbs reset` | Styling on with its defaults: quiet on, color on |
 | `/sbs quiet on`, `/sbs quiet off` | One-line tool rows with output hidden, or full commands and their output |
-| `/sbs colour on`, `/sbs colour off` | Pattern colouring of output. Only seen with quiet off |
+| `/sbs color on`, `/sbs color off` | Pattern coloring of output. Only seen with quiet off |
 
-`/sbs quiet` and `/sbs colour` with no second word flip that switch. The
-settings are remembered per machine. The colour theme is separate: change it
+`/sbs quiet` and `/sbs color` with no second word flip that switch. The
+settings are remembered per machine. The color theme is separate: change it
 with `/theme`.
 
 ## Changing it
 
-- **Colours and labels**: the constants at the top of `hooks/register.tsx`.
+- **Colors and labels**: the constants at the top of `hooks/register.tsx`.
 - **Icons**: `OPERATOR_ICON` and `ASSISTANT_ICON` in the same file.
 - **Spinner phrases**: the pools in `hooks/spinner.ts`. A test rejects any
   phrase over 28 characters, any non-ASCII character and any duplicate. Add the
   source to `docs/phrases.md`.
-- **Output colouring rules**: `hooks/colour.ts`.
+- **Output coloring rules**: `hooks/color.ts`.
 
 Check a change with:
 
@@ -90,7 +90,7 @@ claude plugin test .
   prompt, so a new sign-in shows on your next message. Where that record
   cannot be read, the machine login name is shown.
 - Quiet rows cannot be expanded with ctrl+o. Use `/sbs quiet` to see the detail.
-- With quiet rows off and colouring on, a long shell result shows its first 20
+- With quiet rows off and coloring on, a long shell result shows its first 20
   lines and a count of the rest.
 - A queued message is recognised by its text. Send the same text twice, once
   queued and once not, and both show as queued until one is read.
@@ -99,8 +99,8 @@ claude plugin test .
 - Recognising a delivered message relies on the wording Claude Code 2.1.289
   wraps around it. If a later release changes that wording, a queued message
   turns gold when the next turn starts instead of the moment it is read.
-- The pattern colouring is plain text matching, so words such as `up` or
-  `active` inside ordinary sentences in command output are coloured too.
+- The pattern coloring is plain text matching, so words such as `up` or
+  `active` inside ordinary sentences in command output are colored too.
 
 ## Review status
 
@@ -112,7 +112,7 @@ for the line. The last five passes over the list found nothing to stop it.
 The code was reviewed in the same rounds. Every finding raised was fixed and
 given a test. Changes made after the last review pass have not been seen by a
 reviewer: the final two fixes (delivered-message matching and mixed MCP
-results), the slate-blue queue colour, the icons, the rename to `sbs-deck`, and
+results), the slate-blue queue color, the icons, the rename to `sbs-deck`, and
 the 1.0.1 spinner fix (a phrase could stay scrambled for the rest of a turn
 after the spinner had been off screen) and the account name in the label. The
 test suite passes, 21 tests, on

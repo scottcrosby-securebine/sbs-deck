@@ -1,4 +1,4 @@
-// Colours plain command and device output by pattern: it splits each line
+// Colors plain command and device output by pattern: it splits each line
 // into segments, the matched ones carrying a style, for a hook to draw as Text.
 
 export type Style = { color: string; bold?: boolean; underline?: boolean }
@@ -55,7 +55,7 @@ const PATTERN = new RegExp(RULES.map(([source]) => `(${source})`).join('|'), 'gi
 const COMMENT_LINE = /^\s*(?:#|\/\/|!)(?:\s|$)/
 const RULE_LINE = /^\s*(?:[=\-*_~]{4,}|={2,}\s.*\s={2,})\s*$/
 // The words that mean something else in lower case inside ordinary prose are
-// still coloured: a false positive costs a colour, never a character.
+// still colored: a false positive costs a color, never a character.
 
 // Escape sequences a command printed are dropped, a tab becomes spaces and any
 // other control character goes: a drawn Text may hold none.
@@ -67,7 +67,7 @@ export function cleanLine(line: string): string {
   return line.replace(ESCAPE_SEQUENCE, '').replaceAll('\t', '    ').replace(CONTROL, '').slice(0, MAX_LINE)
 }
 
-export function colourLine(line: string): Segment[] {
+export function colorLine(line: string): Segment[] {
   if (line.length === 0) {
     return [{ text: ' ' }]
   }
