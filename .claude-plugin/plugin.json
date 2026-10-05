@@ -1,0 +1,7 @@
+{
+  "name": "sbs-deck",
+  "version": "1.0.0",
+  "description": "SecureBine console styling for Claude Code: labelled prompt boxes, queued-message colours, quiet tool rows, coloured command output and a science-fiction spinner",
+  "author": { "name": "Scott Crosby" },
+  "types": "./types/index.d.ts"
+}

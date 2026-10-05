@@ -1,0 +1,12 @@
+{
+  "name": "sbs-deck",
+  "metadata": { "description": "SecureBine console styling for Claude Code" },
+  "owner": { "name": "Scott Crosby" },
+  "plugins": [
+    {
+      "name": "sbs-deck",
+      "description": "Labelled prompt boxes, queued-message colours, quiet tool rows, coloured command output and a science-fiction spinner",
+      "source": "./"
+    }
+  ]
+}
