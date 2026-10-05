@@ -314,8 +314,9 @@ export const SPINNER_PHRASES: Readonly<Record<SpinnerMode, readonly string[]>> =
 }
 
 const NOISE = '▓▒░█#%&@$01<>/=+'
-// Characters resolved per tick while a phrase decrypts.
-const REVEAL_RATE = 2
+// Ticks a phrase takes to resolve, whatever its length: under a second, so a
+// state that lasts only a moment still shows a readable phrase.
+const REVEAL_TICKS = 5
 // Once resolved, one character flickers back to noise every this many ticks.
 const GLITCH_PERIOD = 23
 const BAR_CELLS = 6
@@ -346,7 +347,7 @@ function noiseAt(tick: number, index: number): string {
 
 // `age` is the ticks since this phrase came up: it decrypts left to right.
 export function decrypt(phrase: string, age: number, tick: number): string {
-  const revealed = age * REVEAL_RATE
+  const revealed = Math.ceil((phrase.length * Math.max(0, age)) / REVEAL_TICKS)
   const isResolved = revealed >= phrase.length
   const glitchAt = isResolved && tick % GLITCH_PERIOD === 0 ? (tick / GLITCH_PERIOD) * 5 % phrase.length : -1
 

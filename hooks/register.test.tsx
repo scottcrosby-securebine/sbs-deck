@@ -251,6 +251,7 @@ test('a run of picks shows every phrase of a pool once, and the bar keeps its wi
 })
 
 test('the spinner line carries the phrase and the bar', async ($, on) => {
+  mock.clock(on)
   let word = ''
   let suffix = ''
 
@@ -556,4 +557,44 @@ test('an MCP result that mixes text with an image is left to the engine', async 
   })
   expect(await linked.find({ type: 'Text', text: 'engine drew it' })).toBeDefined()
   await linked.unmount()
+})
+
+test('a phrase still resolves after the spinner has been away mid-turn', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  let word = ''
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    word = e.props.word
+
+    return <Text>spinner</Text>
+  })
+
+  const spinner = (mode: 'thinking' | 'tool-use') =>
+    $.ui.mount({
+      plugin: 'sbs-deck',
+      surface: 'terminal',
+      component: 'Spinner',
+      props: { word: 'Baking', message: null, suffix: '…', mode },
+    })
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const first = await spinner('thinking')
+  await first.unmount()
+
+  // The spinner is away for a minute, as behind a dialog: far past the idle
+  // stop of the timer that drives it.
+  await clock.advance(60_000)
+
+  // It comes back in a new state: the new phrase starts as noise...
+  const back = await spinner('tool-use')
+  expect(SPINNER_PHRASES['tool-use']).not.toContain(word)
+  await back.unmount()
+
+  // ...and two seconds later it has resolved.
+  await clock.advance(2_000)
+  const later = await spinner('tool-use')
+  expect(SPINNER_PHRASES['tool-use']).toContain(word)
+  await later.unmount()
 })

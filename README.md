@@ -103,8 +103,9 @@ accurate to its source, no suggestion that Claude has failed, and short enough
 for the line. The last five passes over the list found nothing to stop it.
 
 The code was reviewed in the same rounds. Every finding raised was fixed and
-given a test. The final two fixes (delivered-message matching and mixed MCP
-results), the slate-blue queue colour, the icons and the rename to `sbs-deck`
-were made after the last review pass and have not been seen by a reviewer. The
-test suite last ran clean at 18 passing; it has not been run on the icon and
-rename changes.
+given a test. Changes made after the last review pass have not been seen by a
+reviewer: the final two fixes (delivered-message matching and mixed MCP
+results), the slate-blue queue colour, the icons, the rename to `sbs-deck`, and
+the 1.0.1 spinner fix (a phrase could stay scrambled for the rest of a turn
+after the spinner had been off screen). The test suite passes, 19 tests, on
+Claude Code 2.1.289.

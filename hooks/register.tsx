@@ -213,7 +213,8 @@ export const register: Register = on => {
   let isQuiet = true
   // The running ticker, how far it has counted, and the count the spinner last
   // drew at; then how many phrases each state has drawn from its pool, started
-  // at a random place so sessions differ, and when the current one came up.
+  // at a random place so sessions differ, and the clock time the current one
+  // came up.
   let ticker: Timer | undefined
   let ticks = 0
   let drawnAt = 0
@@ -518,18 +519,41 @@ export const register: Register = on => {
       return next(e)
     }
 
-    const tick = await read($, spinnerTick)
+    // Reading the tick subscribes this line to it; the animation itself runs
+    // off the clock, so it stays right however rarely the line is redrawn.
+    await read($, spinnerTick)
     drawnAt = ticks
+
+    // The ticker stops itself when the spinner has been away (a dialog, a long
+    // stretch of streamed text). Back on screen mid-turn, it is started again.
+    if (ticker === undefined) {
+      ticker = $.clock.every(TICK_MS, () => {
+        ticks += 1
+
+        if (ticks - drawnAt > IDLE_TICKS) {
+          ticker?.cancel()
+          ticker = undefined
+
+          return
+        }
+
+        void update($, spinnerTick, count => count + 1)
+      })
+    }
+
+    const now = await $.clock.now()
+    const frame = Math.floor(now / TICK_MS)
 
     if (e.props.mode !== spinnerMode) {
       spinnerMode = e.props.mode
-      phraseSince = tick
+      phraseSince = now
       picks[e.props.mode] += 1
     }
 
-    const word = decrypt(phraseFor(e.props.mode, picks[e.props.mode]), tick - phraseSince, tick)
+    const age = Math.floor((now - phraseSince) / TICK_MS)
+    const word = decrypt(phraseFor(e.props.mode, picks[e.props.mode]), age, frame)
 
-    return next({ ...e, props: { ...e.props, word, suffix: ` ${scanBar(tick)}` } })
+    return next({ ...e, props: { ...e.props, word, suffix: ` ${scanBar(frame)}` } })
   })
 
   on('ui.render', { component: 'TurnDuration' }, ($, e, next) =>
