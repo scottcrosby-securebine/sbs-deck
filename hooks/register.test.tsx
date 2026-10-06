@@ -690,7 +690,9 @@ test('/sbs anim picks the spinner animation and refuses an unknown one', async (
       }),
     )
 
-  expect(await sbs('anim')).toContain('Spinner animation is bar')
+  expect(await sbs('anim list')).toContain('Spinner animation is bar')
+  expect(await sbs('anim')).toContain('Spinner animation is now wave')
+  expect(await sbs('ani')).toContain('Spinner animation is now cylon')
   expect(await sbs('anim sideways')).toContain('No animation called')
   expect(await sbs('anim wave')).toContain('Spinner animation is wave')
 

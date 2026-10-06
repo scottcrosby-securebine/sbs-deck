@@ -219,7 +219,7 @@ const SBS_USAGE = [
   '/sbs reset             styling on with its defaults: quiet on, color on',
   '/sbs quiet on | off    one-line tool rows with output hidden',
   '/sbs color on | off   pattern coloring of output (seen with quiet off)',
-  '/sbs anim <name>       the spinner animation; /sbs anim lists them',
+  '/sbs anim [name]       the spinner animation; with no name, the next one',
   '/sbs status            what is on now',
 ].join('\n')
 
@@ -322,10 +322,22 @@ export const register: Register = on => {
     }
 
     if (what === 'anim' || what === 'ani' || what === 'animation') {
-      const names = Object.keys(ANIMATIONS).join(', ')
+      const all = Object.keys(ANIMATIONS)
+      const names = all.join(', ')
 
-      if (how === '') {
-        return { text: `Spinner animation is ${animation}. Choose one with /sbs anim <name>: ${names}.` }
+      // With no name, move on to the next one, so repeating the command
+      // steps through them all.
+      if (how === '' || how === 'next') {
+        animation = all[(all.indexOf(animation) + 1) % all.length] ?? 'bar'
+        await $.store.set('animation', animation)
+
+        return {
+          text: `Spinner animation is now ${animation}. Repeat /sbs anim for the next, or name one: ${names}.`,
+        }
+      }
+
+      if (how === 'list') {
+        return { text: `Spinner animation is ${animation}. Choose from: ${names}.` }
       }
 
       if (!(how in ANIMATIONS)) {
