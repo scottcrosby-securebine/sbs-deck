@@ -884,3 +884,38 @@ test('the reply header takes the agent name from the launch variable or /sbs nam
   expect(await sbs('name clear')).toContain('FORGE')
   expect(await header('m1', 'FORGE')).toBe(true)
 })
+
+test('on SBSForge the reply header takes the name the platform gave the agent', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  mock.env(on, { HOME: '/home/sbsforge', USER: 'sbsforge', SBSFORGE_AGENT_NAME: 'miller-ws' })
+  // The agent.yaml the platform writes; every other file is absent.
+  on('fs.read', ($, e) =>
+    e.path === '/home/sbsforge/.sbsforge/config/agent.yaml'
+      ? { value: '# ~/.sbsforge/config/agent.yaml\nagent:\n  name: miller\n  display_name: "Miller"\n  model: opus\n' }
+      : { deny: 'no such file' },
+  )
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('ui.render', { component: 'AssistantMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.text}</Text>
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'AssistantMessage',
+    requestId: 'm1',
+    props: { text: 'a reply', isFirstOfReply: true },
+  })
+  expect(await ui.find({ type: 'Text', text: 'MILLER' })).toBeDefined()
+  // The display name from agent.yaml, not the workspace variable.
+  expect(await ui.find({ type: 'Text', text: 'MILLER-WS' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'CLAUDE' })).toBeUndefined()
+  await ui.unmount()
+})

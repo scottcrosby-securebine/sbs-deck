@@ -63,7 +63,7 @@ claude plugin install sbs-deck@sbs-deck
 | `/sbs quiet on`, `/sbs quiet off` | One-line tool rows with output hidden, or full commands and their output |
 | `/sbs color on`, `/sbs color off` | Pattern coloring of output. Only seen with quiet off |
 | `/sbs anim [name]` | The animation after the spinner phrase. In `auto` (the default) a phrase gets a themed animation only where its own words call for one: rain for the digital rain, a scanning eye for a scan, stars for a jump, a filling bar for loading. Every other phrase keeps the plain `bar`. Or fix one: `bar`, `wave`, `cylon`, `rain`, `pulse`, `helix`, `load`, `stars`, `sonar`, `fire`, `comet`, `pong`, `invader`, `life`, `warp`, `orbit`, `morse`, `shield`, `binary`, `glitch`, `dial`, `eq`. With no name it steps to the next |
-| `/sbs name <name>` | What the reply header calls the assistant, in place of `CLAUDE`. `/sbs name clear` undoes it. An agent can also name itself at launch by exporting `SBS_AGENT_NAME`; a name given with the command wins |
+| `/sbs name <name>` | What the reply header calls the assistant, in place of `CLAUDE`. `/sbs name clear` undoes it. Without it, the name comes from the first of: `SBS_AGENT_NAME` in the environment; on the SBSForge platform, the agent's `display_name` in `~/.sbsforge/config/agent.yaml`; the platform's `SBSFORGE_AGENT_NAME`; and otherwise `CLAUDE` |
 
 `/sbs quiet` and `/sbs color` with no second word flip that switch. The
 settings are remembered per machine. The color theme is separate: change it
@@ -117,5 +117,5 @@ reviewer: the final two fixes (delivered-message matching and mixed MCP
 results), the slate-blue queue color, the icons, the rename to `sbs-deck`, and
 the 1.0.1 spinner fix (a phrase could stay scrambled for the rest of a turn
 after the spinner had been off screen) and the account name in the label. The
-test suite passes, 27 tests, on
+test suite passes, 28 tests, on
 Claude Code 2.1.289.

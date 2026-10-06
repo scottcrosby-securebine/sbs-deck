@@ -236,6 +236,21 @@ function agentName(value: unknown): string | undefined {
   return name.length > 0 ? name : undefined
 }
 
+// The display name the SBSForge platform gave this agent: `display_name` under
+// `agent:` in ~/.sbsforge/config/agent.yaml, which the platform writes when it
+// provisions a workspace. Undefined anywhere that file is absent.
+async function sbsforgeAgentName($: EngineInterface): Promise<string | undefined> {
+  try {
+    const home = await $.env.get('HOME')
+    const config = await $.fs.read(`${home}/.sbsforge/config/agent.yaml`)
+    const found = /^[ \t]+display_name:[ \t]*(.+)$/m.exec(config)?.[1] ?? ''
+
+    return agentName(found.trim().replace(/^(["'])(.*)\1$/, '$2'))
+  } catch {
+    return undefined
+  }
+}
+
 export const register: Register = on => {
   // Which reply block opens each turn, so the header draws once per turn and
   // not on every text block between tool calls. Saved to the store as each
@@ -284,7 +299,9 @@ export const register: Register = on => {
   let username = 'unknown'
   let account: string | undefined
   // What the reply header calls the assistant: a name given with /sbs name,
-  // else the SBS_AGENT_NAME the session was started with, else CLAUDE.
+  // else the name the session was started with (SBS_AGENT_NAME, or on the
+  // SBSForge platform the agent's display name from its agent.yaml, or the
+  // SBSFORGE_AGENT_NAME its workspace is given), else CLAUDE.
   let givenName: string | undefined
   let launchName: string | undefined
   let isColoring = true
@@ -301,7 +318,10 @@ export const register: Register = on => {
     username = (await $.env.get('USER')) ?? username
 
     account = await signedInAccount($)
-    launchName = agentName(await $.env.get('SBS_AGENT_NAME'))
+    launchName =
+      agentName(await $.env.get('SBS_AGENT_NAME')) ??
+      (await sbsforgeAgentName($)) ??
+      agentName(await $.env.get('SBSFORGE_AGENT_NAME'))
     givenName = agentName(await $.store.get('agentName'))
     isEnabled = (await $.store.get('isEnabled')) !== false
     isColoring = (await $.store.get('isColoring')) !== false
