@@ -837,3 +837,50 @@ test('a stored animation name is restored only when it names an animation', asyn
   expect(suffix).toBe(` ${ANIMATIONS.cylon?.(0)}`)
   await ui.unmount()
 })
+
+test('the reply header takes the agent name from the launch variable or /sbs name', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  mock.env(on, { USER: 'tester', SBS_AGENT_NAME: 'Forge' })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('ui.render', { component: 'AssistantMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.text}</Text>
+  })
+  const sbs = async (args: string) =>
+    JSON.stringify(
+      await $.command.run({
+        command: 'sbs',
+        args,
+        origin: { kind: 'composer' },
+        presentation: { isFullscreen: false, columns: 120 },
+      }),
+    )
+  const header = async (requestId: string, name: string) => {
+    const ui = await $.ui.mount({
+      plugin: 'sbs-deck',
+      surface: 'terminal',
+      component: 'AssistantMessage',
+      requestId,
+      props: { text: 'a reply', isFirstOfReply: true },
+    })
+    const found = await ui.find({ type: 'Text', text: name })
+    await ui.unmount()
+
+    return found !== undefined
+  }
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  expect(await header('m1', 'FORGE')).toBe(true)
+  expect(await header('m1', 'CLAUDE')).toBe(false)
+
+  // A name given by hand wins over the launch variable, and clear undoes it.
+  expect(await sbs('name Night City')).toContain('NIGHT CITY')
+  expect(await header('m1', 'NIGHT CITY')).toBe(true)
+  expect(await sbs('name clear')).toContain('FORGE')
+  expect(await header('m1', 'FORGE')).toBe(true)
+})

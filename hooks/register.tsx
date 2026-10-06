@@ -220,8 +220,21 @@ const SBS_USAGE = [
   '/sbs quiet on | off    one-line tool rows with output hidden',
   '/sbs color on | off   pattern coloring of output (seen with quiet off)',
   '/sbs anim [name]       the spinner animation; with no name, the next one',
+  '/sbs name <name>       what the reply header calls the assistant; clear to undo',
   '/sbs status            what is on now',
 ].join('\n')
+
+// A name fit for the reply header: one line, upper case, no longer than the
+// header has room for. Undefined for anything that is not a usable name.
+function agentName(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const name = cleanLine(value.split('\n')[0] ?? '').trim().toUpperCase().slice(0, 24)
+
+  return name.length > 0 ? name : undefined
+}
 
 export const register: Register = on => {
   // Which reply block opens each turn, so the header draws once per turn and
@@ -270,6 +283,10 @@ export const register: Register = on => {
   // machine's login name stands in where no account can be read.
   let username = 'unknown'
   let account: string | undefined
+  // What the reply header calls the assistant: a name given with /sbs name,
+  // else the SBS_AGENT_NAME the session was started with, else CLAUDE.
+  let givenName: string | undefined
+  let launchName: string | undefined
   let isColoring = true
 
   on('session.start', async ($, e, next) => {
@@ -284,6 +301,8 @@ export const register: Register = on => {
     username = (await $.env.get('USER')) ?? username
 
     account = await signedInAccount($)
+    launchName = agentName(await $.env.get('SBS_AGENT_NAME'))
+    givenName = agentName(await $.store.get('agentName'))
     isEnabled = (await $.store.get('isEnabled')) !== false
     isColoring = (await $.store.get('isColoring')) !== false
     isQuiet = (await $.store.get('isQuiet')) !== false
@@ -319,6 +338,28 @@ export const register: Register = on => {
 
     if (what === '' || what === 'status') {
       return { text: `${status()}\n${SBS_USAGE}` }
+    }
+
+    if (what === 'name') {
+      const wanted = e.args.trim().slice(what.length).trim()
+
+      if (wanted === '') {
+        return {
+          text: `The reply header says ${givenName ?? launchName ?? 'CLAUDE'}. Set it with /sbs name <name>; /sbs name clear goes back to ${launchName ?? 'CLAUDE'}.`,
+        }
+      }
+
+      givenName = wanted.toLowerCase() === 'clear' ? undefined : agentName(wanted)
+
+      if (givenName === undefined) {
+        await $.store.delete('agentName')
+      } else {
+        await $.store.set('agentName', givenName)
+      }
+
+      $.ui.invalidate('ui.render')
+
+      return { text: `The reply header now says ${givenName ?? launchName ?? 'CLAUDE'}.` }
     }
 
     if (what === 'anim' || what === 'ani' || what === 'animation') {
@@ -520,7 +561,7 @@ export const register: Register = on => {
         <Box flexDirection="row">
           <Text color={NEON_CYAN}>{ASSISTANT_ICON} </Text>
           <Text bold color={NEON_CYAN}>
-            CLAUDE
+            {givenName ?? launchName ?? 'CLAUDE'}
           </Text>
           <Text color={INK_DIM}> // DOWNLINK</Text>
         </Box>

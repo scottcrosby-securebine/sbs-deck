@@ -10,7 +10,7 @@ what Claude does or what Claude reads.
 |---|---|
 | Prompt box | Each of your messages sits in a gold box labelled `OPERATOR // UPLINK: <your Claude account email>`, with a shield icon |
 | Queued messages | A message you type while Claude is still working sits in a slate-blue box labelled `OPERATOR // QUEUED:`. It turns gold when Claude has been handed it |
-| Reply header | The first block of each reply is headed `CLAUDE // DOWNLINK`, with a robot icon |
+| Reply header | The first block of each reply is headed `CLAUDE // DOWNLINK`, with a robot icon. The name can be the agent's own: see `/sbs name` |
 | Quiet tool rows | Each tool call is one line saying what it is for: `▸` running, `✓` finished, `✗` failed. Output is hidden unless the call failed |
 | Colored output | With quiet rows off, shell and MCP output is colored by pattern: up/down states, IP and MAC addresses, interface names, numbers with units, paths, JSON |
 | Spinner | While Claude works, a science-fiction phrase for what it is doing decrypts out of noise, with a scanning bar. A new phrase each time the state changes |
@@ -63,6 +63,7 @@ claude plugin install sbs-deck@sbs-deck
 | `/sbs quiet on`, `/sbs quiet off` | One-line tool rows with output hidden, or full commands and their output |
 | `/sbs color on`, `/sbs color off` | Pattern coloring of output. Only seen with quiet off |
 | `/sbs anim [name]` | The animation after the spinner phrase. In `auto` (the default) a phrase gets a themed animation only where its own words call for one: rain for the digital rain, a scanning eye for a scan, stars for a jump, a filling bar for loading. Every other phrase keeps the plain `bar`. Or fix one: `bar`, `wave`, `cylon`, `rain`, `pulse`, `helix`, `load`, `stars`, `sonar`, `fire`, `comet`, `pong`, `invader`, `life`, `warp`, `orbit`, `morse`, `shield`, `binary`, `glitch`, `dial`, `eq`. With no name it steps to the next |
+| `/sbs name <name>` | What the reply header calls the assistant, in place of `CLAUDE`. `/sbs name clear` undoes it. An agent can also name itself at launch by exporting `SBS_AGENT_NAME`; a name given with the command wins |
 
 `/sbs quiet` and `/sbs color` with no second word flip that switch. The
 settings are remembered per machine. The color theme is separate: change it
@@ -116,5 +117,5 @@ reviewer: the final two fixes (delivered-message matching and mixed MCP
 results), the slate-blue queue color, the icons, the rename to `sbs-deck`, and
 the 1.0.1 spinner fix (a phrase could stay scrambled for the rest of a turn
 after the spinner had been off screen) and the account name in the label. The
-test suite passes, 26 tests, on
+test suite passes, 27 tests, on
 Claude Code 2.1.289.
