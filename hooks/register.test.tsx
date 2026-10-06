@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { ANIMATIONS, SPINNER_PHRASES, animationFor, decrypt, phraseFor, scanBar } from './spinner'
+import { ANIMATIONS, SPINNER_PHRASES, animationFor, decrypt, livingWorld, phraseFor, scanBar } from './spinner'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -726,6 +726,14 @@ test('in auto only a phrase that calls for it gets a themed animation', () => {
   expect(animationFor('auto', 'Executing the quickhack')).toBe('binary')
   expect(animationFor('auto', 'Firing the beam rifle')).toBe('comet')
   expect(animationFor('auto', 'Calculating the jump')).toBe('stars')
+  expect(animationFor('auto', 'Firing the PDCs')).toBe('comet')
+  expect(animationFor('auto', 'Opening the pod bay doors')).toBe('bar')
+  expect(animationFor('auto', 'Testing, for science')).toBe('bar')
+  expect(animationFor('auto', 'Purging the heresy')).toBe('fire')
+  expect(animationFor('auto', 'Priming the thermoptics')).toBe('load')
+  expect(animationFor('auto', 'Reloading the shotgun')).toBe('load')
+  expect(animationFor('auto', 'Uplinking to Cyberdyne')).toBe('morse')
+  expect(animationFor('auto', 'Raising Tycho Station')).toBe('morse')
   expect(animationFor('auto', 'Prepping a fresh sleeve')).toBe('helix')
   expect(animationFor('auto', 'Pinging the mothership')).toBe('sonar')
   expect(animationFor('auto', 'Handshaking')).toBe('pulse')
@@ -749,7 +757,8 @@ test('the animations hold up at the frame numbers a real clock gives', () => {
   const start = 12_000_000_000
 
   for (const [name, draw] of Object.entries(ANIMATIONS)) {
-    const width = [...draw(0)].length
+    const width = name === 'bar' ? 6 : 8
+    expect([...draw(0)].length, name).toBe(width)
 
     for (let frame = start; frame < start + 120; frame += 1) {
       expect([...draw(frame)].length, `${name} at ${frame}`).toBe(width)
@@ -769,9 +778,62 @@ test('the animations hold up at the frame numbers a real clock gives', () => {
     expect(ANIMATIONS.life?.(frame), `life at ${frame}`).not.toBe('\u2800'.repeat(8))
   }
 
+  // Nor when a world and its seed are both empty: a fixed pattern stands in.
+  const empty = Array.from({ length: 4 }, () => Array.from({ length: 16 }, () => false))
+  const seeded = empty.map((row, y) => row.map((_, x) => x === 3 && y === 1))
+  expect(livingWorld(empty, seeded)).toBe(seeded)
+  expect(livingWorld(empty, empty).some(row => row.some(Boolean))).toBe(true)
+
   // The comet is on screen for all but a frame or two of its cycle.
   const blank = Array.from({ length: 23 }, (_, step) => ANIMATIONS.comet?.(start + step)).filter(
     frame => frame === '\u2800'.repeat(8),
   )
   expect(blank.length).toBeLessThan(3)
+})
+
+test('a stored animation name is restored only when it names an animation', async ($, on) => {
+  mock.clock(on)
+  mock.env(on, { USER: 'tester' })
+  const stored: Record<string, unknown> = { animation: 'constructor' }
+  let suffix = ''
+  on('store.get', ($, e) => ({ value: stored[e.key] }))
+  on('store.set', ($, e) => {
+    stored[e.key] = e.value
+
+    return { value: undefined }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    suffix = e.props.suffix
+
+    return <Text>spinner</Text>
+  })
+  const sbs = async (args: string) =>
+    JSON.stringify(
+      await $.command.run({
+        command: 'sbs',
+        args,
+        origin: { kind: 'composer' },
+        presentation: { isFullscreen: false, columns: 120 },
+      }),
+    )
+
+  // A name inherited from Object is not an animation: the default stands.
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(await sbs('anim list')).toContain('Spinner animation is auto')
+
+  // A real one is restored and drawn.
+  stored.animation = 'cylon'
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(await sbs('anim list')).toContain('Spinner animation is cylon')
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'Spinner',
+    props: { word: 'Baking', message: null, suffix: '…', mode: 'thinking' },
+  })
+  expect(suffix).toBe(` ${ANIMATIONS.cylon?.(0)}`)
+  await ui.unmount()
 })

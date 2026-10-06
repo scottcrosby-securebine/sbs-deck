@@ -116,5 +116,5 @@ reviewer: the final two fixes (delivered-message matching and mixed MCP
 results), the slate-blue queue color, the icons, the rename to `sbs-deck`, and
 the 1.0.1 spinner fix (a phrase could stay scrambled for the rest of a turn
 after the spinner had been off screen) and the account name in the label. The
-test suite passes, 25 tests, on
+test suite passes, 26 tests, on
 Claude Code 2.1.289.
