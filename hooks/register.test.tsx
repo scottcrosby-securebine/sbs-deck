@@ -714,6 +714,18 @@ test('in auto only a phrase that calls for it gets a themed animation', () => {
   expect(animationFor('auto', 'Plotting the burn')).toBe('stars')
   expect(animationFor('auto', 'Bug hunting')).toBe('invader')
   expect(animationFor('auto', 'Loading the Construct')).toBe('load')
+  // Pairings the review moved: no picture where the words do not call for one.
+  expect(animationFor('auto', 'Storming Straylight')).toBe('bar')
+  expect(animationFor('auto', 'Seeing the Golden Path')).toBe('bar')
+  expect(animationFor('auto', 'Unfolding a sophon')).toBe('bar')
+  expect(animationFor('auto', 'Walking without rhythm')).toBe('bar')
+  expect(animationFor('auto', 'Thinking with portals')).toBe('bar')
+  expect(animationFor('auto', 'Opening hailing frequencies')).toBe('morse')
+  expect(animationFor('auto', 'Breaching the attack barrier')).toBe('binary')
+  expect(animationFor('auto', 'Loading the quickhack')).toBe('load')
+  expect(animationFor('auto', 'Executing the quickhack')).toBe('binary')
+  expect(animationFor('auto', 'Firing the beam rifle')).toBe('comet')
+  expect(animationFor('auto', 'Calculating the jump')).toBe('stars')
   expect(animationFor('auto', 'Prepping a fresh sleeve')).toBe('helix')
   expect(animationFor('auto', 'Pinging the mothership')).toBe('sonar')
   expect(animationFor('auto', 'Handshaking')).toBe('pulse')
@@ -730,4 +742,36 @@ test('in auto only a phrase that calls for it gets a themed animation', () => {
 
   // A good share of the phrases stay plain.
   expect(all.filter(phrase => animationFor('auto', phrase) === 'bar').length).toBeGreaterThan(all.length / 3)
+})
+
+test('the animations hold up at the frame numbers a real clock gives', () => {
+  // Frames come from the clock in 150 ms steps: about twelve billion today.
+  const start = 12_000_000_000
+
+  for (const [name, draw] of Object.entries(ANIMATIONS)) {
+    const width = [...draw(0)].length
+
+    for (let frame = start; frame < start + 120; frame += 1) {
+      expect([...draw(frame)].length, `${name} at ${frame}`).toBe(width)
+    }
+
+    const frames = new Set(Array.from({ length: 60 }, (_, step) => draw(start + step)))
+    expect(frames.size, name).toBeGreaterThan(3)
+  }
+
+  for (let frame = start; frame < start + 120; frame += 1) {
+    // Every column of the fire keeps its bottom row alight.
+    for (const cell of ANIMATIONS.fire?.(frame) ?? '') {
+      expect((cell.charCodeAt(0) - 0x2800) & 0xc0, `fire at ${frame}`).toBe(0xc0)
+    }
+
+    // The Game of Life never shows an empty world.
+    expect(ANIMATIONS.life?.(frame), `life at ${frame}`).not.toBe('\u2800'.repeat(8))
+  }
+
+  // The comet is on screen for all but a frame or two of its cycle.
+  const blank = Array.from({ length: 23 }, (_, step) => ANIMATIONS.comet?.(start + step)).filter(
+    frame => frame === '\u2800'.repeat(8),
+  )
+  expect(blank.length).toBeLessThan(3)
 })

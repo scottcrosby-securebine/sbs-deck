@@ -412,7 +412,7 @@ function scatter(x: number, n: number): number {
   hash = Math.imul(hash, 2246822519) >>> 0
   hash ^= hash >>> 13
 
-  return hash % n
+  return (hash >>> 0) % n
 }
 
 const BLOCKS = '▁▂▃▄▅▆▇█'
@@ -439,9 +439,11 @@ const LIFE_RUN = 24
 
 function lifeAt(frame: number): boolean[][] {
   const epoch = Math.floor(frame / LIFE_RUN)
-  let grid = Array.from({ length: STRIP_HEIGHT }, (_, y) =>
+  const seed = Array.from({ length: STRIP_HEIGHT }, (_, y) =>
     Array.from({ length: STRIP_WIDTH }, (_, x) => scatter(x + y * STRIP_WIDTH + epoch * 64, 3) === 0),
   )
+
+  let grid = seed
 
   for (let generation = frame % LIFE_RUN; generation > 0; generation -= 1) {
     grid = grid.map((row, y) =>
@@ -461,7 +463,8 @@ function lifeAt(frame: number): boolean[][] {
     )
   }
 
-  return grid
+  // A world that has died out shows its seed again rather than nothing.
+  return grid.some(row => row.some(Boolean)) ? grid : seed
 }
 
 export const ANIMATIONS: Readonly<Record<string, (frame: number) => string>> = {
@@ -516,14 +519,16 @@ export const ANIMATIONS: Readonly<Record<string, (frame: number) => string>> = {
     strip((x, y, f) => {
       const reach = Math.floor(Math.abs(x - 7.5))
 
-      return reach === f % 9 || (reach === 0 && y > 0 && y < 3)
+      const ring = f % 9
+
+      return (y > 0 && y < 3 && (reach === ring || reach === ring - 4)) || reach === 0
     }, frame),
   // Flames flickering along the bottom.
   fire: frame => strip((x, y, f) => y >= STRIP_HEIGHT - 1 - scatter(x + f * 101, 4), frame),
   // A comet crossing with a ragged tail.
   comet: frame =>
     strip((x, y, f) => {
-      const head = (f % 26) - 4
+      const head = f % 23
       const behind = head - x
 
       return (behind === 0 && y > 0 && y < 3) || (behind > 0 && behind < 4 && y === 2) || (behind >= 4 && behind < 8 && y === 2 && (x & 1) === 0)
@@ -600,26 +605,25 @@ export const AUTO = 'auto'
 
 const THEMES: readonly (readonly [string, RegExp])[] = [
   ['rain', /\brain\b|Seeing the code/i],
-  ['invader', /\bbugs?\b|Mobile Infantry|heresy|xenos/i],
+  ['invader', /\bbugs?\b|Mobile Infantry/i],
   ['dial', /Dialing|chevron/i],
-  ['shield', /shields?\b|attack barrier|thermoptics/i],
-  ['warp', /lightspeed|hyperspace|Punching it|Kessel|space fold|Folding space|Improbability|88 miles|Jumping the fleet/i],
-  ['fire', /^(Firing|Lighting|Burning)\b|reactor|Storming/i],
-  ['sonar', /Pinging|motion tracker|Sweeping the ports|Probing|tricorder/i],
-  ['morse', /^(Hailing|Transmitting|Broadcasting)\b|recognition codes/i],
-  ['comet', /tightbeam|Tightbeaming|Death Star plans|Beaming|Energizing|Needlecasting|Farcasting/i],
-  ['binary', /Decrypting|cipher|Decoding|Hacking|Slicing|\bICE\b|Breach Protocol|Kuang|UNIX/i],
-  ['glitch', /Jacking|the Grid|Metaverse|cyberspace|Black Sun/i],
-  ['life', /Computing|computations|Calculating|psychohistory|Prime Radiant|forty-two/i],
-  ['orbit', /docking|Tycho Station|the colony|Battle Room|Rocinante|the Roci\b/i],
-  ['pong', /tic-tac-toe|for science|with portals/i],
-  ['cylon', /Cylon|Skynet|Cyberdyne|\bHUD\b|Sarah Connor|Terminating|Scanning|motion tracker|Sweeping|pod bay|Voight-Kampff|baseline test/i],
+  ['shield', /^Raising (shields|the Holtzman shield|the attack barrier)/i],
+  ['warp', /lightspeed|hyperspace|Punching it|Kessel|space fold|Folding space|Improbability|88 miles|Jumping the fleet|through time|Adama Maneuver/i],
+  ['comet', /tightbeam|Death Star plans|^Beaming|Needlecasting|Farcasting|^Firing the (beam rifle|main gun)/i],
+  ['fire', /^(Lighting|Burning)\b|^Firing the PDCs|reactor/i],
+  ['sonar', /Pinging|motion tracker|Sweeping the ports|Probing|tricorder|Jedi archives/i],
+  ['morse', /^(Hailing|Transmitting|Broadcasting)\b|hailing frequencies|recognition codes|Opening the uplink/i],
+  ['binary', /Decrypting|cipher|Decoding the transmission|Hacking|Slicing|\bICE\b|Breach Protocol|Kuang|UNIX|^Executing the quickhack|Breaching the attack barrier/i],
+  ['glitch', /Jacking|the Grid|Metaverse|cyberspace|Black Sun|Diving the net|Minovsky/i],
+  ['stars', /Plotting the burn|Plotting a course|Calculating the jump|jump coordinates|way to Earth|times faster/i],
+  ['life', /Computing|computations|Calculating|psychohistory|Prime Radiant/i],
+  ['orbit', /docking|Tycho Station|the colony/i],
+  ['cylon', /Cylon|Skynet|\bHUD\b|Sarah Connor|Terminating|Scanning|Voight-Kampff|baseline test/i],
   ['load', /^(Loading|Booting|Uploading|Compiling|Spooling|Priming|Charging|Warming)\b|matter compiler/i],
-  ['stars', /lightspeed|hyperspace|Kessel|Punching it|\bjump|\bfold\b|Folding space|\bburn|Epstein drive|Plotting a course|Improbability|through time|88 miles|times faster|Adama Maneuver|way to Earth|Needlecasting|Farcasting|Dialing the gate/i],
-  ['wave', /sandworm|the worm|without rhythm|deep desert|thumper|\bdiv(e|ing)\b|Surfacing|Golden Path|\bspice\b/i],
-  ['helix', /sleeve|cortical stack|neurachem|protoculture|sophon|neural handshake|sync ratio|Newtype|the Drift/i],
-  ['pulse', /^(Pinging|Handshaking|Hailing|Transmitting|Broadcasting|Tightbeaming|Listening)\b|Phoning home|tightbeam|ansible/i],
-  ['eq', /Overclocking|Rerouting power|Reversing the polarity|Minovsky/i],
+  ['wave', /sandworm|the worm|deep desert|Deep diving|Surfacing|\bspice\b/i],
+  ['helix', /sleeve|cortical stack|neurachem|protoculture|neural handshake|sync ratio|Newtype|the Drift/i],
+  ['pulse', /^(Handshaking|Listening)\b|Phoning home|ansible|thumper/i],
+  ['eq', /Overclocking|Rerouting power|Reversing the polarity|Minmei|with the Voice/i],
 ]
 
 export function animationFor(choice: string, phrase: string): string {

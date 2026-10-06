@@ -290,7 +290,7 @@ export const register: Register = on => {
 
     const savedAnimation = await $.store.get('animation')
 
-    if (typeof savedAnimation === 'string' && (savedAnimation === AUTO || savedAnimation in ANIMATIONS)) {
+    if (typeof savedAnimation === 'string' && (savedAnimation === AUTO || Object.hasOwn(ANIMATIONS, savedAnimation))) {
       animation = savedAnimation
     }
 
