@@ -321,7 +321,7 @@ export const register: Register = on => {
       return { text: `${status()}\n${SBS_USAGE}` }
     }
 
-    if (what === 'anim') {
+    if (what === 'anim' || what === 'ani' || what === 'animation') {
       const names = Object.keys(ANIMATIONS).join(', ')
 
       if (how === '') {
