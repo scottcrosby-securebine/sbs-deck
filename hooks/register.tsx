@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import { cleanLine, colorLine } from './color'
-import { decrypt, phraseFor, scanBar } from './spinner'
+import { ANIMATIONS, decrypt, phraseFor } from './spinner'
 import type { SpinnerMode } from './spinner'
 
 // SecureBine site tokens (website_v3 app/globals.css, dark theme).
@@ -219,6 +219,7 @@ const SBS_USAGE = [
   '/sbs reset             styling on with its defaults: quiet on, color on',
   '/sbs quiet on | off    one-line tool rows with output hidden',
   '/sbs color on | off   pattern coloring of output (seen with quiet off)',
+  '/sbs anim <name>       the spinner animation; /sbs anim lists them',
   '/sbs status            what is on now',
 ].join('\n')
 
@@ -245,6 +246,8 @@ export const register: Register = on => {
   // Quiet: each tool call is one line saying what it is for, and its output is
   // not drawn unless it failed.
   let isQuiet = true
+  // Which animation follows the spinner's phrase.
+  let animation = 'bar'
   // The running ticker, how far it has counted, and the count the spinner last
   // drew at; then how many phrases each state has drawn from its pool, started
   // at a random place so sessions differ, and the clock time the current one
@@ -272,7 +275,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'sbs',
-      description: 'SecureBine styling: on, off, normal, reset, quiet on|off, color on|off, status',
+      description: 'SecureBine styling: on, off, normal, reset, quiet on|off, color on|off, anim <name>, status',
     })
     await $.command.register({
       name: 'sbs-color',
@@ -284,6 +287,12 @@ export const register: Register = on => {
     isEnabled = (await $.store.get('isEnabled')) !== false
     isColoring = (await $.store.get('isColoring')) !== false
     isQuiet = (await $.store.get('isQuiet')) !== false
+
+    const savedAnimation = await $.store.get('animation')
+
+    if (typeof savedAnimation === 'string' && savedAnimation in ANIMATIONS) {
+      animation = savedAnimation
+    }
 
     const savedOpeners = await $.store.get('turnOpeners')
 
@@ -310,6 +319,23 @@ export const register: Register = on => {
 
     if (what === '' || what === 'status') {
       return { text: `${status()}\n${SBS_USAGE}` }
+    }
+
+    if (what === 'anim') {
+      const names = Object.keys(ANIMATIONS).join(', ')
+
+      if (how === '') {
+        return { text: `Spinner animation is ${animation}. Choose one with /sbs anim <name>: ${names}.` }
+      }
+
+      if (!(how in ANIMATIONS)) {
+        return { text: `No animation called "${how}". Choose from: ${names}.` }
+      }
+
+      animation = how
+      await $.store.set('animation', animation)
+
+      return { text: `Spinner animation is ${animation}.` }
     }
 
     if ((what === 'on' || what === 'off' || what === 'normal' || what === 'reset') && how === '') {
@@ -612,7 +638,7 @@ export const register: Register = on => {
     const age = Math.floor((now - phraseSince) / TICK_MS)
     const word = decrypt(phraseFor(e.props.mode, picks[e.props.mode]), age, frame)
 
-    return next({ ...e, props: { ...e.props, word, suffix: ` ${scanBar(frame)}` } })
+    return next({ ...e, props: { ...e.props, word, suffix: ` ${(ANIMATIONS[animation] ?? ANIMATIONS.bar)?.(frame) ?? ''}` } })
   })
 
   on('ui.render', { component: 'TurnDuration' }, ($, e, next) =>

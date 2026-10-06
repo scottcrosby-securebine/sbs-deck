@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { SPINNER_PHRASES, decrypt, phraseFor, scanBar } from './spinner'
+import { ANIMATIONS, SPINNER_PHRASES, decrypt, phraseFor, scanBar } from './spinner'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -659,4 +659,47 @@ test('/sbs sets each switch by name, shows status, and resets', async ($, on) =>
   expect(await sbs('status')).toContain('Styling is off; quiet tool rows are off; output coloring is off.')
   expect(await sbs('quiet sideways')).toContain('Unknown option')
   expect(await sbs('reset')).toContain('Styling is on; quiet tool rows are on; output coloring is on.')
+})
+
+test('every animation draws a fixed-width strip that moves', () => {
+  for (const [name, draw] of Object.entries(ANIMATIONS)) {
+    const frames = Array.from({ length: 40 }, (_, frame) => draw(frame))
+    const widths = new Set(frames.map(frame => [...frame].length))
+    expect(widths.size, name).toBe(1)
+    expect(new Set(frames).size, name).toBeGreaterThan(3)
+  }
+})
+
+test('/sbs anim picks the spinner animation and refuses an unknown one', async ($, on) => {
+  mock.store(on)
+  mock.clock(on)
+  let suffix = ''
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    suffix = e.props.suffix
+
+    return <Text>spinner</Text>
+  })
+  const sbs = async (args: string) =>
+    JSON.stringify(
+      await $.command.run({
+        command: 'sbs',
+        args,
+        origin: { kind: 'composer' },
+        presentation: { isFullscreen: false, columns: 120 },
+      }),
+    )
+
+  expect(await sbs('anim')).toContain('Spinner animation is bar')
+  expect(await sbs('anim sideways')).toContain('No animation called')
+  expect(await sbs('anim wave')).toContain('Spinner animation is wave')
+
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'Spinner',
+    props: { word: 'Baking', message: null, suffix: '…', mode: 'thinking' },
+  })
+  expect(suffix).toBe(` ${ANIMATIONS.wave?.(0)}`)
+  await ui.unmount()
 })

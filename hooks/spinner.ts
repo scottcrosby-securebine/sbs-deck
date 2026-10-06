@@ -370,3 +370,97 @@ export function scanBar(tick: number): string {
     index === start || index === start + 1 ? '▰' : '▱',
   ).join('')
 }
+
+// Pixel animations for the end of the spinner line. A braille character is a
+// 2 by 4 grid of dots, so a strip of them is a small screen: 8 cells give 16
+// by 4 pixels. Each animation says which pixels are lit at a frame.
+const STRIP_CELLS = 8
+const STRIP_WIDTH = STRIP_CELLS * 2
+const STRIP_HEIGHT = 4
+// The braille dot for each (column, row) of a cell, as its bit.
+const DOT_BITS = [
+  [0x01, 0x02, 0x04, 0x40],
+  [0x08, 0x10, 0x20, 0x80],
+] as const
+
+type Lit = (x: number, y: number, frame: number) => boolean
+
+function strip(lit: Lit, frame: number): string {
+  let out = ''
+
+  for (let cell = 0; cell < STRIP_CELLS; cell += 1) {
+    let bits = 0
+
+    for (let column = 0; column < 2; column += 1) {
+      for (let row = 0; row < STRIP_HEIGHT; row += 1) {
+        if (lit(cell * 2 + column, row, frame)) {
+          bits |= DOT_BITS[column]?.[row] ?? 0
+        }
+      }
+    }
+
+    out += String.fromCharCode(0x2800 + bits)
+  }
+
+  return out
+}
+
+// A steady pseudo-random number in 0..n-1 for a column.
+function scatter(x: number, n: number): number {
+  return ((x * 7919 + 104729) >>> 3) % n
+}
+
+const BLOCKS = '▁▂▃▄▅▆▇█'
+
+export const ANIMATIONS: Readonly<Record<string, (frame: number) => string>> = {
+  // The original two-cell block bouncing along a bar.
+  bar: scanBar,
+  // A sine wave rolling left.
+  wave: frame => strip((x, y, f) => y === Math.round(1.5 + 1.5 * Math.sin((x + f) * 0.6)), frame),
+  // A scanning eye with a fading trail, sweeping side to side.
+  cylon: frame =>
+    strip((x, y, f) => {
+      const span = STRIP_WIDTH - 1
+      const step = f % (span * 2)
+      const head = step <= span ? step : span * 2 - step
+      const gap = Math.abs(x - head)
+
+      return gap === 0 || (gap === 1 && y > 0 && y < 3) || (gap === 2 && y === 2)
+    }, frame),
+  // Drops falling at their own pace, as the digital rain.
+  rain: frame =>
+    strip((x, y, f) => {
+      const drop = (f + scatter(x, 9)) % (STRIP_HEIGHT + 2 + scatter(x + 3, 4))
+
+      return y === drop || y === drop - 1
+    }, frame),
+  // A heartbeat trace travelling along a baseline.
+  pulse: frame =>
+    strip((x, y, f) => {
+      const beat = [2, 1, 0, 3, 2][(x - f) & 15] ?? 2
+
+      return y === beat
+    }, frame),
+  // Two strands twisting round each other.
+  helix: frame =>
+    strip((x, y, f) => {
+      const a = Math.round(1.5 + 1.5 * Math.sin((x + f) * 0.5))
+      const b = Math.round(1.5 - 1.5 * Math.sin((x + f) * 0.5))
+
+      return y === a || y === b
+    }, frame),
+  // A column of pixels filling from the left and draining again.
+  load: frame =>
+    strip((x, y, f) => {
+      const filled = f % (STRIP_WIDTH * 2)
+
+      return filled <= STRIP_WIDTH ? x < filled : x >= filled - STRIP_WIDTH
+    }, frame),
+  // An equaliser of block bars.
+  eq: frame =>
+    Array.from({ length: STRIP_CELLS }, (_, x) => {
+      const level = Math.abs(Math.sin(frame * 0.45 + x * 1.3) * Math.cos(frame * 0.17 + x * 0.7))
+
+      return BLOCKS[Math.min(BLOCKS.length - 1, Math.floor(level * BLOCKS.length))] ?? '▁'
+    }).join(''),
+}
