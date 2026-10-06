@@ -649,7 +649,7 @@ export const register: Register = on => {
 
     const age = Math.floor((now - phraseSince) / TICK_MS)
     const phrase = phraseFor(e.props.mode, picks[e.props.mode])
-    const draw = ANIMATIONS[animationFor(animation, phrase, e.props.mode)] ?? ANIMATIONS.bar
+    const draw = ANIMATIONS[animationFor(animation, phrase)] ?? ANIMATIONS.bar
 
     return next({
       ...e,

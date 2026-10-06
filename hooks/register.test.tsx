@@ -706,17 +706,25 @@ test('/sbs anim picks the spinner animation and refuses an unknown one', async (
   await ui.unmount()
 })
 
-test('in auto the animation follows the phrase, and a named one overrides it', () => {
-  expect(animationFor('auto', 'Reading the digital rain', 'thinking')).toBe('rain')
-  expect(animationFor('auto', 'Checking for Cylons', 'tool-use')).toBe('cylon')
-  expect(animationFor('auto', 'Riding the sandworm', 'tool-use')).toBe('wave')
-  expect(animationFor('auto', 'Jumping to lightspeed', 'tool-use')).toBe('stars')
-  expect(animationFor('auto', 'a phrase with no source', 'tool-input')).toBe('load')
-  expect(animationFor('eq', 'Reading the digital rain', 'thinking')).toBe('eq')
+test('in auto only a phrase that calls for it gets a themed animation', () => {
+  expect(animationFor('auto', 'Reading the digital rain')).toBe('rain')
+  expect(animationFor('auto', 'Checking for Cylons')).toBe('cylon')
+  expect(animationFor('auto', 'Riding the sandworm')).toBe('wave')
+  expect(animationFor('auto', 'Jumping to lightspeed')).toBe('stars')
+  expect(animationFor('auto', 'Loading the Construct')).toBe('load')
+  expect(animationFor('auto', 'Prepping a fresh sleeve')).toBe('helix')
+  expect(animationFor('auto', 'Pinging the mothership')).toBe('pulse')
+  // Nothing in these calls for a picture: they keep the plain bar.
+  expect(animationFor('auto', 'Grabbing my towel')).toBe('bar')
+  expect(animationFor('auto', 'Consulting the Codex')).toBe('bar')
+  expect(animationFor('eq', 'Reading the digital rain')).toBe('eq')
 
-  for (const [mode, phrases] of Object.entries(SPINNER_PHRASES)) {
-    for (const phrase of phrases) {
-      expect(Object.keys(ANIMATIONS), phrase).toContain(animationFor('auto', phrase, mode as 'thinking'))
-    }
+  const all = Object.values(SPINNER_PHRASES).flat()
+
+  for (const phrase of all) {
+    expect(Object.keys(ANIMATIONS), phrase).toContain(animationFor('auto', phrase))
   }
+
+  // Most phrases stay plain.
+  expect(all.filter(phrase => animationFor('auto', phrase) === 'bar').length).toBeGreaterThan(all.length / 2)
 })
