@@ -710,10 +710,13 @@ test('in auto only a phrase that calls for it gets a themed animation', () => {
   expect(animationFor('auto', 'Reading the digital rain')).toBe('rain')
   expect(animationFor('auto', 'Checking for Cylons')).toBe('cylon')
   expect(animationFor('auto', 'Riding the sandworm')).toBe('wave')
-  expect(animationFor('auto', 'Jumping to lightspeed')).toBe('stars')
+  expect(animationFor('auto', 'Jumping to lightspeed')).toBe('warp')
+  expect(animationFor('auto', 'Plotting the burn')).toBe('stars')
+  expect(animationFor('auto', 'Bug hunting')).toBe('invader')
   expect(animationFor('auto', 'Loading the Construct')).toBe('load')
   expect(animationFor('auto', 'Prepping a fresh sleeve')).toBe('helix')
-  expect(animationFor('auto', 'Pinging the mothership')).toBe('pulse')
+  expect(animationFor('auto', 'Pinging the mothership')).toBe('sonar')
+  expect(animationFor('auto', 'Handshaking')).toBe('pulse')
   // Nothing in these calls for a picture: they keep the plain bar.
   expect(animationFor('auto', 'Grabbing my towel')).toBe('bar')
   expect(animationFor('auto', 'Consulting the Codex')).toBe('bar')
@@ -725,6 +728,6 @@ test('in auto only a phrase that calls for it gets a themed animation', () => {
     expect(Object.keys(ANIMATIONS), phrase).toContain(animationFor('auto', phrase))
   }
 
-  // Most phrases stay plain.
-  expect(all.filter(phrase => animationFor('auto', phrase) === 'bar').length).toBeGreaterThan(all.length / 2)
+  // A good share of the phrases stay plain.
+  expect(all.filter(phrase => animationFor('auto', phrase) === 'bar').length).toBeGreaterThan(all.length / 3)
 })

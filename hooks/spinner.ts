@@ -407,10 +407,62 @@ function strip(lit: Lit, frame: number): string {
 
 // A steady pseudo-random number in 0..n-1 for a column.
 function scatter(x: number, n: number): number {
-  return ((x * 7919 + 104729) >>> 3) % n
+  let hash = Math.imul(x + 1, 2654435761) >>> 0
+  hash ^= hash >>> 15
+  hash = Math.imul(hash, 2246822519) >>> 0
+  hash ^= hash >>> 13
+
+  return hash % n
 }
 
 const BLOCKS = '▁▂▃▄▅▆▇█'
+
+// Back and forth between 0 and `span`, one step a frame.
+function bounce(frame: number, span: number): number {
+  const step = frame % (span * 2)
+
+  return step <= span ? step : span * 2 - step
+}
+
+// A space invader, six pixels wide, in its two poses.
+const INVADER = [
+  ['.#..#.', '######', '#.##.#', '#....#'],
+  ['.#..#.', '######', '#.##.#', '.#..#.'],
+] as const
+
+// "SBS" in Morse, as on and off pixels: a dot is one on, a dash three.
+const MORSE = '1010100011101010100010101000000'
+
+// Conway's Game of Life on the strip, wrapped at its edges: a scattering of
+// cells run for a couple of dozen generations, then a fresh scattering.
+const LIFE_RUN = 24
+
+function lifeAt(frame: number): boolean[][] {
+  const epoch = Math.floor(frame / LIFE_RUN)
+  let grid = Array.from({ length: STRIP_HEIGHT }, (_, y) =>
+    Array.from({ length: STRIP_WIDTH }, (_, x) => scatter(x + y * STRIP_WIDTH + epoch * 64, 3) === 0),
+  )
+
+  for (let generation = frame % LIFE_RUN; generation > 0; generation -= 1) {
+    grid = grid.map((row, y) =>
+      row.map((alive, x) => {
+        let near = 0
+
+        for (const dy of [-1, 0, 1]) {
+          for (const dx of [-1, 0, 1]) {
+            if ((dx !== 0 || dy !== 0) && grid[(y + dy + STRIP_HEIGHT) % STRIP_HEIGHT]?.[(x + dx + STRIP_WIDTH) % STRIP_WIDTH]) {
+              near += 1
+            }
+          }
+        }
+
+        return near === 3 || (alive && near === 2)
+      }),
+    )
+  }
+
+  return grid
+}
 
 export const ANIMATIONS: Readonly<Record<string, (frame: number) => string>> = {
   // The original two-cell block bouncing along a bar.
@@ -459,6 +511,78 @@ export const ANIMATIONS: Readonly<Record<string, (frame: number) => string>> = {
   // Stars streaming past at different speeds.
   stars: frame =>
     strip((x, y, f) => (x + f * (1 + (y & 1)) + y * 5) % (6 + y) === 0, frame),
+  // A ping spreading out from the middle.
+  sonar: frame =>
+    strip((x, y, f) => {
+      const reach = Math.floor(Math.abs(x - 7.5))
+
+      return reach === f % 9 || (reach === 0 && y > 0 && y < 3)
+    }, frame),
+  // Flames flickering along the bottom.
+  fire: frame => strip((x, y, f) => y >= STRIP_HEIGHT - 1 - scatter(x + f * 101, 4), frame),
+  // A comet crossing with a ragged tail.
+  comet: frame =>
+    strip((x, y, f) => {
+      const head = (f % 26) - 4
+      const behind = head - x
+
+      return (behind === 0 && y > 0 && y < 3) || (behind > 0 && behind < 4 && y === 2) || (behind >= 4 && behind < 8 && y === 2 && (x & 1) === 0)
+    }, frame),
+  // A game of Pong: two paddles tracking a bouncing ball.
+  pong: frame =>
+    strip((x, y, f) => {
+      const ballX = 1 + bounce(f, 13)
+      const ballY = bounce(f, 3)
+      const paddle = Math.min(2, ballY)
+
+      return (x === ballX && y === ballY) || ((x === 0 || x === STRIP_WIDTH - 1) && (y === paddle || y === paddle + 1))
+    }, frame),
+  // A space invader marching side to side.
+  invader: frame =>
+    strip((x, y, f) => {
+      const left = bounce(Math.floor(f / 2), STRIP_WIDTH - 6)
+
+      return INVADER[Math.floor(f / 2) & 1]?.[y]?.[x - left] === '#'
+    }, frame),
+  // Conway's Game of Life, reseeded every couple of dozen generations.
+  life: frame => {
+    const grid = lifeAt(frame)
+
+    return strip((x, y) => grid[y]?.[x] === true, frame)
+  },
+  // Streaks rushing out from the centre: the jump to lightspeed.
+  warp: frame =>
+    strip((x, y, f) => {
+      const reach = Math.floor(Math.abs(x - 7.5))
+      const period = 5 + y
+      const phase = (((reach - f * (1 + (y & 1))) % period) + period) % period
+
+      return phase < (reach > 4 ? 2 : 1)
+    }, frame),
+  // A moon circling a planet.
+  orbit: frame =>
+    strip((x, y, f) => {
+      const moonX = Math.round(7.5 + 7 * Math.cos(f * 0.45))
+      const moonY = Math.round(1.5 + 1.5 * Math.sin(f * 0.45))
+
+      return (x === moonX && y === moonY) || ((x === 7 || x === 8) && y > 0 && y < 3)
+    }, frame),
+  // "SBS" keyed out in Morse, scrolling past.
+  morse: frame => strip((x, y, f) => y > 0 && y < 3 && MORSE[(x + f) % MORSE.length] === '1', frame),
+  // A shield wall pushing out from the centre.
+  shield: frame =>
+    strip((x, y, f) => {
+      const reach = Math.floor(Math.abs(x - 7.5))
+      const edge = f % 9
+
+      return reach === edge || (reach < edge && (y === 0 || y === STRIP_HEIGHT - 1))
+    }, frame),
+  // Ones and zeroes streaming by.
+  binary: frame => Array.from({ length: STRIP_CELLS }, (_, cell) => (scatter(cell + frame, 2) === 0 ? '0' : '1')).join(''),
+  // Static: a burst of noise characters.
+  glitch: frame => Array.from({ length: STRIP_CELLS }, (_, cell) => (scatter(cell * 3 + frame, 5) === 0 ? ' ' : noiseAt(frame, cell))).join(''),
+  // Chevrons locking one after another.
+  dial: frame => Array.from({ length: STRIP_CELLS }, (_, cell) => (cell < (Math.floor(frame / 2) % (STRIP_CELLS + 2)) ? '◆' : '◇')).join(''),
   // An equaliser of block bars.
   eq: frame =>
     Array.from({ length: STRIP_CELLS }, (_, x) => {
@@ -476,6 +600,19 @@ export const AUTO = 'auto'
 
 const THEMES: readonly (readonly [string, RegExp])[] = [
   ['rain', /\brain\b|Seeing the code/i],
+  ['invader', /\bbugs?\b|Mobile Infantry|heresy|xenos/i],
+  ['dial', /Dialing|chevron/i],
+  ['shield', /shields?\b|attack barrier|thermoptics/i],
+  ['warp', /lightspeed|hyperspace|Punching it|Kessel|space fold|Folding space|Improbability|88 miles|Jumping the fleet/i],
+  ['fire', /^(Firing|Lighting|Burning)\b|reactor|Storming/i],
+  ['sonar', /Pinging|motion tracker|Sweeping the ports|Probing|tricorder/i],
+  ['morse', /^(Hailing|Transmitting|Broadcasting)\b|recognition codes/i],
+  ['comet', /tightbeam|Tightbeaming|Death Star plans|Beaming|Energizing|Needlecasting|Farcasting/i],
+  ['binary', /Decrypting|cipher|Decoding|Hacking|Slicing|\bICE\b|Breach Protocol|Kuang|UNIX/i],
+  ['glitch', /Jacking|the Grid|Metaverse|cyberspace|Black Sun/i],
+  ['life', /Computing|computations|Calculating|psychohistory|Prime Radiant|forty-two/i],
+  ['orbit', /docking|Tycho Station|the colony|Battle Room|Rocinante|the Roci\b/i],
+  ['pong', /tic-tac-toe|for science|with portals/i],
   ['cylon', /Cylon|Skynet|Cyberdyne|\bHUD\b|Sarah Connor|Terminating|Scanning|motion tracker|Sweeping|pod bay|Voight-Kampff|baseline test/i],
   ['load', /^(Loading|Booting|Uploading|Compiling|Spooling|Priming|Charging|Warming)\b|matter compiler/i],
   ['stars', /lightspeed|hyperspace|Kessel|Punching it|\bjump|\bfold\b|Folding space|\bburn|Epstein drive|Plotting a course|Improbability|through time|88 miles|times faster|Adama Maneuver|way to Earth|Needlecasting|Farcasting|Dialing the gate/i],

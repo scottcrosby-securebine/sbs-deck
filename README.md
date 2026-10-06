@@ -62,7 +62,7 @@ claude plugin install sbs-deck@sbs-deck
 | `/sbs reset` | Styling on with its defaults: quiet on, color on |
 | `/sbs quiet on`, `/sbs quiet off` | One-line tool rows with output hidden, or full commands and their output |
 | `/sbs color on`, `/sbs color off` | Pattern coloring of output. Only seen with quiet off |
-| `/sbs anim [name]` | The animation after the spinner phrase. In `auto` (the default) a phrase gets a themed animation only where its own words call for one: rain for the digital rain, a scanning eye for a scan, stars for a jump, a filling bar for loading. Every other phrase keeps the plain `bar`. Or fix one: `bar`, `wave`, `cylon`, `rain`, `pulse`, `helix`, `load`, `stars`, `eq`. With no name it steps to the next |
+| `/sbs anim [name]` | The animation after the spinner phrase. In `auto` (the default) a phrase gets a themed animation only where its own words call for one: rain for the digital rain, a scanning eye for a scan, stars for a jump, a filling bar for loading. Every other phrase keeps the plain `bar`. Or fix one: `bar`, `wave`, `cylon`, `rain`, `pulse`, `helix`, `load`, `stars`, `sonar`, `fire`, `comet`, `pong`, `invader`, `life`, `warp`, `orbit`, `morse`, `shield`, `binary`, `glitch`, `dial`, `eq`. With no name it steps to the next |
 
 `/sbs quiet` and `/sbs color` with no second word flip that switch. The
 settings are remembered per machine. The color theme is separate: change it
