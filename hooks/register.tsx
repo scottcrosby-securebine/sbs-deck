@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import { cleanLine, colorLine } from './color'
-import { ANIMATIONS, decrypt, phraseFor } from './spinner'
+import { ANIMATIONS, AUTO, animationFor, decrypt, phraseFor } from './spinner'
 import type { SpinnerMode } from './spinner'
 
 // SecureBine site tokens (website_v3 app/globals.css, dark theme).
@@ -247,7 +247,7 @@ export const register: Register = on => {
   // not drawn unless it failed.
   let isQuiet = true
   // Which animation follows the spinner's phrase.
-  let animation = 'bar'
+  let animation = AUTO
   // The running ticker, how far it has counted, and the count the spinner last
   // drew at; then how many phrases each state has drawn from its pool, started
   // at a random place so sessions differ, and the clock time the current one
@@ -290,7 +290,7 @@ export const register: Register = on => {
 
     const savedAnimation = await $.store.get('animation')
 
-    if (typeof savedAnimation === 'string' && savedAnimation in ANIMATIONS) {
+    if (typeof savedAnimation === 'string' && (savedAnimation === AUTO || savedAnimation in ANIMATIONS)) {
       animation = savedAnimation
     }
 
@@ -322,13 +322,13 @@ export const register: Register = on => {
     }
 
     if (what === 'anim' || what === 'ani' || what === 'animation') {
-      const all = Object.keys(ANIMATIONS)
+      const all = [AUTO, ...Object.keys(ANIMATIONS)]
       const names = all.join(', ')
 
       // With no name, move on to the next one, so repeating the command
       // steps through them all.
       if (how === '' || how === 'next') {
-        animation = all[(all.indexOf(animation) + 1) % all.length] ?? 'bar'
+        animation = all[(all.indexOf(animation) + 1) % all.length] ?? AUTO
         await $.store.set('animation', animation)
 
         return {
@@ -340,7 +340,7 @@ export const register: Register = on => {
         return { text: `Spinner animation is ${animation}. Choose from: ${names}.` }
       }
 
-      if (!(how in ANIMATIONS)) {
+      if (!all.includes(how)) {
         return { text: `No animation called "${how}". Choose from: ${names}.` }
       }
 
@@ -648,9 +648,13 @@ export const register: Register = on => {
     }
 
     const age = Math.floor((now - phraseSince) / TICK_MS)
-    const word = decrypt(phraseFor(e.props.mode, picks[e.props.mode]), age, frame)
+    const phrase = phraseFor(e.props.mode, picks[e.props.mode])
+    const draw = ANIMATIONS[animationFor(animation, phrase, e.props.mode)] ?? ANIMATIONS.bar
 
-    return next({ ...e, props: { ...e.props, word, suffix: ` ${(ANIMATIONS[animation] ?? ANIMATIONS.bar)?.(frame) ?? ''}` } })
+    return next({
+      ...e,
+      props: { ...e.props, word: decrypt(phrase, age, frame), suffix: ` ${draw?.(frame) ?? ''}` },
+    })
   })
 
   on('ui.render', { component: 'TurnDuration' }, ($, e, next) =>

@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { ANIMATIONS, SPINNER_PHRASES, decrypt, phraseFor, scanBar } from './spinner'
+import { ANIMATIONS, SPINNER_PHRASES, animationFor, decrypt, phraseFor, scanBar } from './spinner'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -270,7 +270,7 @@ test('the spinner line carries the phrase and the bar', async ($, on) => {
     props: { word: 'Baking', message: null, suffix: '…', mode: 'thinking' },
   })
   expect(SPINNER_PHRASES.thinking.some(phrase => phrase.length === word.length)).toBe(true)
-  expect(suffix).toBe(` ${scanBar(0)}`)
+  expect(Object.values(ANIMATIONS).map(draw => ` ${draw(0)}`)).toContain(suffix)
   await ui.unmount()
 })
 
@@ -690,9 +690,9 @@ test('/sbs anim picks the spinner animation and refuses an unknown one', async (
       }),
     )
 
-  expect(await sbs('anim list')).toContain('Spinner animation is bar')
-  expect(await sbs('anim')).toContain('Spinner animation is now wave')
-  expect(await sbs('ani')).toContain('Spinner animation is now cylon')
+  expect(await sbs('anim list')).toContain('Spinner animation is auto')
+  expect(await sbs('anim')).toContain('Spinner animation is now bar')
+  expect(await sbs('ani')).toContain('Spinner animation is now wave')
   expect(await sbs('anim sideways')).toContain('No animation called')
   expect(await sbs('anim wave')).toContain('Spinner animation is wave')
 
@@ -704,4 +704,19 @@ test('/sbs anim picks the spinner animation and refuses an unknown one', async (
   })
   expect(suffix).toBe(` ${ANIMATIONS.wave?.(0)}`)
   await ui.unmount()
+})
+
+test('in auto the animation follows the phrase, and a named one overrides it', () => {
+  expect(animationFor('auto', 'Reading the digital rain', 'thinking')).toBe('rain')
+  expect(animationFor('auto', 'Checking for Cylons', 'tool-use')).toBe('cylon')
+  expect(animationFor('auto', 'Riding the sandworm', 'tool-use')).toBe('wave')
+  expect(animationFor('auto', 'Jumping to lightspeed', 'tool-use')).toBe('stars')
+  expect(animationFor('auto', 'a phrase with no source', 'tool-input')).toBe('load')
+  expect(animationFor('eq', 'Reading the digital rain', 'thinking')).toBe('eq')
+
+  for (const [mode, phrases] of Object.entries(SPINNER_PHRASES)) {
+    for (const phrase of phrases) {
+      expect(Object.keys(ANIMATIONS), phrase).toContain(animationFor('auto', phrase, mode as 'thinking'))
+    }
+  }
 })

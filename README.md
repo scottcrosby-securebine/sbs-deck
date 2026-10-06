@@ -62,7 +62,7 @@ claude plugin install sbs-deck@sbs-deck
 | `/sbs reset` | Styling on with its defaults: quiet on, color on |
 | `/sbs quiet on`, `/sbs quiet off` | One-line tool rows with output hidden, or full commands and their output |
 | `/sbs color on`, `/sbs color off` | Pattern coloring of output. Only seen with quiet off |
-| `/sbs anim <name>` | Pick the animation after the spinner phrase: `bar`, `wave`, `cylon`, `rain`, `pulse`, `helix`, `load`, `eq`. `/sbs anim` with no name steps to the next one |
+| `/sbs anim [name]` | The animation after the spinner phrase. `auto` (the default) matches it to the phrase: rain for The Matrix and Blade Runner, a scanning eye for Battlestar Galactica and Terminator, a wave for Dune, a starfield for the space operas, and so on. Or fix one: `bar`, `wave`, `cylon`, `rain`, `pulse`, `helix`, `load`, `stars`, `eq`. With no name it steps to the next |
 
 `/sbs quiet` and `/sbs color` with no second word flip that switch. The
 settings are remembered per machine. The color theme is separate: change it
@@ -116,5 +116,5 @@ reviewer: the final two fixes (delivered-message matching and mixed MCP
 results), the slate-blue queue color, the icons, the rename to `sbs-deck`, and
 the 1.0.1 spinner fix (a phrase could stay scrambled for the rest of a turn
 after the spinner had been off screen) and the account name in the label. The
-test suite passes, 23 tests, on
+test suite passes, 24 tests, on
 Claude Code 2.1.289.
