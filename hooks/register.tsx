@@ -27,36 +27,36 @@ const TICK_MS = 150
 const MAX_SAVED_OPENERS = 400
 // How many drawn reply ids are remembered within a session.
 const MAX_TRACKED_REPLIES = 4000
-// A ticker nobody has drawn from for this many ticks stops itself: a turn that
-// ended without `turn.complete` must not leave it running.
+// A ticker nobody has drawn from for this many ticks stops itself. That is how
+// it stops at all: a background agent's spinner can outlive the turn that
+// started it, so the end of a turn does not stop the ticker.
 const IDLE_TICKS = 40
 
 // How many lines of a result are drawn colored before the rest is counted.
 const MAX_RESULT_LINES = 20
 
+// A plain text block: one with text and, if it names a type, the type `text`.
+function isTextBlock(block: unknown): block is { text: string } {
+  return (
+    typeof block === 'object' &&
+    block !== null &&
+    'text' in block &&
+    typeof block.text === 'string' &&
+    (!('type' in block) || block.type === 'text')
+  )
+}
+
+// The blocks' text, or undefined where any block is an image, a resource or
+// anything else that is not plain text: that result is the engine's to draw,
+// whole.
 function textOfBlocks(blocks: readonly unknown[]): string | undefined {
-  const texts: string[] = []
-
-  for (const block of blocks) {
-    // An image, a resource or any other block that is not plain text: the
-    // result is the engine's to draw, whole.
-    if (typeof block !== 'object' || block === null || !('text' in block) || typeof block.text !== 'string') {
-      return undefined
-    }
-
-    if ('type' in block && block.type !== 'text') {
-      return undefined
-    }
-
-    texts.push(block.text)
-  }
-
-  return texts.length > 0 ? texts.join('\n') : undefined
+  return blocks.length > 0 && blocks.every(isTextBlock) ? blocks.map(block => block.text).join('\n') : undefined
 }
 
 // A tool result's text, in whichever of the shapes it arrives: a shell
 // result's two streams, a bare string, or a list of text blocks. Undefined
-// for any other shape, which the engine then draws itself.
+// for any other shape, and for a shell result whose output is an image, which
+// the engine then draws itself.
 function textOfOutput(output: unknown): string | undefined {
   if (typeof output === 'string') {
     return output
@@ -72,6 +72,10 @@ function textOfOutput(output: unknown): string | undefined {
 
   if ('content' in output && Array.isArray(output.content)) {
     return textOfBlocks(output.content)
+  }
+
+  if ('isImage' in output && output.isImage === true) {
+    return undefined
   }
 
   const streams = [
@@ -113,48 +117,24 @@ function summaryOf(tool: string, input: unknown): string {
 // same text when it is queued, drawn and delivered.
 function comparable(text: string): string {
   return text
-    .replaceAll('\r\n', '\n')
     .split('\n')
     .map(line => line.trim())
     .join('\n')
     .trim()
 }
 
-// Where `prompt` sits in `text` as whole lines: at the start or after a line
-// break, and running to the end or to a line break. -1 when it does not. The
-// engine frames a delivered prompt with sentences of its own, and a prompt
-// that merely occurs inside that framing has not been delivered.
-function wholeLineIndex(text: string, prompt: string): number {
-  let from = 0
-
-  for (;;) {
-    const at = text.indexOf(prompt, from)
-
-    if (at === -1) {
-      return -1
-    }
-
-    const end = at + prompt.length
-    const startsLine = at === 0 || text[at - 1] === '\n'
-    const endsLine = end === text.length || text[end] === '\n'
-
-    if (startsLine && endsLine) {
-      return at
-    }
-
-    from = at + 1
-  }
-}
-
-// The waiting prompts a delivered text carries, longest first, each match
-// taken out of the text before the next is looked for: a prompt that is only
-// a fragment of a longer delivered one is not counted as delivered with it.
+// The waiting prompts a delivered text carries as whole lines, longest first,
+// each match taken out of the text before the next is looked for: a prompt
+// that only occurs inside a line, of the engine's framing or of a longer
+// delivered prompt, is not counted as delivered.
 function deliveredAmong(waiting: ReadonlySet<string>, text: string): string[] {
   let remaining = comparable(text)
   const delivered: string[] = []
 
   for (const prompt of [...waiting].sort((a, b) => b.length - a.length)) {
-    const at = prompt.length > 0 ? wholeLineIndex(remaining, prompt) : -1
+    // Padded with line breaks, the match starts and ends on one, and its index
+    // in the padded text is where the prompt starts in the unpadded one.
+    const at = prompt.length > 0 ? `\n${remaining}\n`.indexOf(`\n${prompt}\n`) : -1
 
     if (at !== -1) {
       delivered.push(prompt)
@@ -172,13 +152,23 @@ const DELIVERY_TAIL = '\n\nThis is how Claude Code surfaces'
 
 // The waiting prompts a `queued_command` attachment delivers. Where the text
 // carries the engine's framing, only what the framing encloses is compared,
-// and it must be a waiting prompt whole; text with no framing is searched by
-// whole lines.
+// and it must be a waiting prompt whole: first everything from the first lead
+// to the last tail, so a prompt that quotes the framing itself is one prompt,
+// then each framed part, for several prompts delivered together. Text with no
+// framing is searched by whole lines.
 function deliveredByAttachment(waiting: ReadonlySet<string>, text: string): string[] {
   const unified = text.replaceAll('\r\n', '\n')
+  const start = unified.indexOf(DELIVERY_LEAD)
 
-  if (!unified.includes(DELIVERY_LEAD)) {
+  if (start === -1) {
     return deliveredAmong(waiting, unified)
+  }
+
+  const end = unified.lastIndexOf(DELIVERY_TAIL)
+  const whole = comparable(unified.slice(start + DELIVERY_LEAD.length, end > start ? end : undefined))
+
+  if (waiting.has(whole)) {
+    return [whole]
   }
 
   return unified
@@ -192,7 +182,15 @@ function deliveredByAttachment(waiting: ReadonlySet<string>, text: string): stri
 // status line reads: `oauthAccount.emailAddress` in `.claude.json`.
 async function signedInAccount($: EngineInterface): Promise<string | undefined> {
   try {
-    const directory = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? (await $.env.get('HOME'))
+    // As Claude Code resolves it: an empty CLAUDE_CONFIG_DIR counts as unset.
+    // With no directory at all there is nothing to read: a relative path would
+    // be read from the session's working directory.
+    const directory = (await $.env.get('CLAUDE_CONFIG_DIR')) || (await $.env.get('HOME'))
+
+    if (!directory) {
+      return undefined
+    }
+
     const record: unknown = JSON.parse(await $.fs.read(`${directory}/.claude.json`))
 
     if (typeof record !== 'object' || record === null || !('oauthAccount' in record)) {
@@ -231,21 +229,47 @@ function agentName(value: unknown): string | undefined {
     return undefined
   }
 
-  const name = cleanLine(value.split('\n')[0] ?? '').trim().toUpperCase().slice(0, 24)
+  // Cut by code points, so a name never ends in half a surrogate pair.
+  const name = [...cleanLine(value.split('\n')[0] ?? '').trim().toUpperCase()].slice(0, 24).join('')
 
   return name.length > 0 ? name : undefined
 }
 
-// The display name the SBSForge platform gave this agent: `display_name` under
-// `agent:` in ~/.sbsforge/config/agent.yaml, which the platform writes when it
-// provisions a workspace. Undefined anywhere that file is absent.
+// The display name the SBSForge platform gave this agent: the `display_name`
+// key directly under a top-level `agent:` in ~/.sbsforge/config/agent.yaml,
+// which the platform writes when it provisions a workspace. Blank and comment
+// lines inside the block are skipped, and a deeper `display_name` belongs to a
+// nested map, not to the agent. A quoted value loses its quotes and a plain
+// one its `# comment`. Undefined anywhere that file is absent.
 async function sbsforgeAgentName($: EngineInterface): Promise<string | undefined> {
   try {
     const home = await $.env.get('HOME')
-    const config = await $.fs.read(`${home}/.sbsforge/config/agent.yaml`)
-    const found = /^[ \t]+display_name:[ \t]*(.+)$/m.exec(config)?.[1] ?? ''
 
-    return agentName(found.trim().replace(/^(["'])(.*)\1$/, '$2'))
+    if (!home) {
+      return undefined
+    }
+
+    const config = await $.fs.read(`${home}/.sbsforge/config/agent.yaml`)
+    const head = /^agent:[ \t]*(?:#.*)?$/m.exec(config)
+
+    if (head === null) {
+      return undefined
+    }
+
+    // The block runs to the next line that starts at column 0 with a key.
+    const rest = config.slice(head.index + head[0].length)
+    const end = rest.search(/\n[^ \t#\r\n]/)
+    const block = end === -1 ? rest : rest.slice(0, end)
+    // The block's own indent: that of its first line that is not blank or a comment.
+    const indent = /^([ \t]+)[^ \t#\r\n]/m.exec(block)?.[1]
+
+    if (indent === undefined) {
+      return undefined
+    }
+
+    const value = new RegExp(`^${indent}display_name:[ \\t]*(.*)$`, 'm').exec(block)?.[1]?.trim() ?? ''
+
+    return agentName(/^(["'])(.*?)\1/.exec(value)?.[2] ?? value.replace(/(?:^|\s)#.*$/, ''))
   } catch {
     return undefined
   }
@@ -278,8 +302,7 @@ export const register: Register = on => {
   let animation = AUTO
   // The running ticker, how far it has counted, and the count the spinner last
   // drew at; then how many phrases each state has drawn from its pool, started
-  // at a random place so sessions differ, and the clock time the current one
-  // came up.
+  // at a random place so sessions differ.
   let ticker: Timer | undefined
   let ticks = 0
   let drawnAt = 0
@@ -291,8 +314,10 @@ export const register: Register = on => {
     'tool-use': firstPick,
     responding: firstPick,
   }
-  let spinnerMode: SpinnerMode | undefined
-  let phraseSince = 0
+  // Each spinner's state, its phrase and when that came up, by surface and
+  // instance: a session can draw several spinners at once (the terminal and the
+  // desktop, or one per agent), and each keeps its own phrase.
+  const phrasesShown = new Map<string, { mode: SpinnerMode; pick: number; since: number }>()
   // Who is shown beside OPERATOR: the account signed in to Claude Code, by its
   // email, read again at every turn so a new sign-in shows at once. The
   // machine's login name stands in where no account can be read.
@@ -304,12 +329,13 @@ export const register: Register = on => {
   // SBSFORGE_AGENT_NAME its workspace is given), else CLAUDE.
   let givenName: string | undefined
   let launchName: string | undefined
+  const replyName = () => givenName ?? launchName ?? 'CLAUDE'
   let isColoring = true
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'sbs',
-      description: 'SecureBine styling: on, off, normal, reset, quiet on|off, color on|off, anim <name>, status',
+      description: 'SecureBine styling: on, off, normal, reset, quiet on|off, color on|off, anim [name], name <name>, status',
     })
     await $.command.register({
       name: 'sbs-color',
@@ -350,7 +376,8 @@ export const register: Register = on => {
   on('command.run', { command: 'sbs' }, async ($, e) => {
     const [what = '', how = ''] = e.args.trim().toLowerCase().split(/\s+/)
     const status = () =>
-      `Styling is ${isEnabled ? 'on' : 'off'}; quiet tool rows are ${isQuiet ? 'on' : 'off'}; output coloring is ${isColoring ? 'on' : 'off'}.`
+      `Styling is ${isEnabled ? 'on' : 'off'}; quiet tool rows are ${isQuiet ? 'on' : 'off'}; output coloring is ${isColoring ? 'on' : 'off'}. ` +
+      `Spinner animation: ${animation}. Reply header: ${replyName()}.`
 
     // On or off as asked; with neither word, the opposite of what it is now.
     const setting = (current: boolean): boolean | undefined =>
@@ -365,7 +392,7 @@ export const register: Register = on => {
 
       if (wanted === '') {
         return {
-          text: `The reply header says ${givenName ?? launchName ?? 'CLAUDE'}. Set it with /sbs name <name>; /sbs name clear goes back to ${launchName ?? 'CLAUDE'}.`,
+          text: `The reply header says ${replyName()}. Set it with /sbs name <name>; /sbs name clear goes back to ${launchName ?? 'CLAUDE'}.`,
         }
       }
 
@@ -379,7 +406,7 @@ export const register: Register = on => {
 
       $.ui.invalidate('ui.render')
 
-      return { text: `The reply header now says ${givenName ?? launchName ?? 'CLAUDE'}.` }
+      return { text: `The reply header now says ${replyName()}.` }
     }
 
     if (what === 'anim' || what === 'ani' || what === 'animation') {
@@ -450,29 +477,42 @@ export const register: Register = on => {
       $.ui.invalidate('ui.render')
     }
 
-    // A prompt typed while a turn was running carries that turn's id.
+    // A prompt typed while a turn was running carries that turn's id, and waits
+    // from the moment it is submitted, by the text typed: the rest of the chain
+    // can take a while, and the prompt can be read before it returns.
     if (e.turnId !== undefined && (e.origin.kind === 'composer' || e.origin.kind === 'bridge')) {
       waitingPrompts.add(comparable(e.text))
+      $.ui.invalidate('ui.render')
     }
 
     return next(e)
   })
 
   // A waiting prompt is read when the engine injects it into the running turn
-  // (the `queued_command` attachment) or when a new turn opens with it.
-  on('prompt.attachment', ($, e, next) => {
-    if (e.type === 'queued_command') {
-      for (const prompt of deliveredByAttachment(waitingPrompts, e.text)) {
+  // (the `queued_command` attachment) or when a new turn opens with it. The
+  // attachment counts as the rest of the chain leaves it: one left out of the
+  // request, or rewritten, has not handed the model that prompt.
+  on('prompt.attachment', async ($, e, next) => {
+    const result = await next(e)
+
+    if (e.type === 'queued_command' && typeof result.text === 'string') {
+      for (const prompt of deliveredByAttachment(waitingPrompts, result.text)) {
         waitingPrompts.delete(prompt)
         $.ui.invalidate('ui.render')
       }
     }
 
-    return next(e)
+    return result
   })
 
   // Each turn, however it began, gets one reply header and a running ticker.
+  // A subagent's run starts as a turn of its own inside the main turn: it is
+  // the main turn's header, phrase and ticker that stand.
   on('turn.start', ($, e, next) => {
+    if (e.agentId !== undefined) {
+      return next(e)
+    }
+
     for (const prompt of deliveredAmong(waitingPrompts, e.text)) {
       waitingPrompts.delete(prompt)
       $.ui.invalidate('ui.render')
@@ -508,8 +548,11 @@ export const register: Register = on => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    ticker?.cancel()
-    ticker = undefined
+    // A subagent's run completes as a turn of its own: the reply headers are
+    // the main turn's, saved when it completes.
+    if (e.agentId !== undefined) {
+      return next(e)
+    }
 
     const kept = [...turnOpeners].slice(-MAX_SAVED_OPENERS)
 
@@ -548,7 +591,7 @@ export const register: Register = on => {
           <Text bold color={accent}>
             OPERATOR // {isWaiting ? 'QUEUED' : 'UPLINK'}:
           </Text>
-          <Text color={INK_DIM}> {account ?? username}</Text>
+          <Text color={INK_DIM}> {cleanLine(account ?? username)}</Text>
         </Box>
         {/* The engine's row opens with a blank line; the eyebrow takes it. */}
         <Box flexDirection="column" marginTop={-1}>
@@ -581,7 +624,7 @@ export const register: Register = on => {
         <Box flexDirection="row">
           <Text color={NEON_CYAN}>{ASSISTANT_ICON} </Text>
           <Text bold color={NEON_CYAN}>
-            {givenName ?? launchName ?? 'CLAUDE'}
+            {replyName()}
           </Text>
           <Text color={INK_DIM}> // DOWNLINK</Text>
         </Box>
@@ -623,19 +666,18 @@ export const register: Register = on => {
       return next(e)
     }
 
+    const { Box, Text } = $.ui.resolve(e)
+
     // Quiet mode draws no output for a call that worked; a failure shows whole.
     if (isQuiet && !e.props.isErrored) {
-      const { Box } = $.ui.resolve(e)
-
       return <Box />
     }
 
-    const { Box, Text } = $.ui.resolve(e)
     const isOurs = e.props.tool === 'Bash' || e.props.tool.startsWith('mcp__')
     const text = isColoring && isOurs && !e.props.isErrored ? textOfOutput(e.props.output) : undefined
-    const lines = text?.replace(/\s+$/, '').split('\n').map(cleanLine) ?? []
+    const lines = text?.trimEnd().split('\n').map(cleanLine) ?? []
 
-    if (lines.length === 0 || lines.every(line => line.trim().length === 0)) {
+    if (lines.every(line => line.trim().length === 0)) {
       return next(e)
     }
 
@@ -702,14 +744,17 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const frame = Math.floor(now / TICK_MS)
 
-    if (e.props.mode !== spinnerMode) {
-      spinnerMode = e.props.mode
-      phraseSince = now
+    const instance = `${e.surface}:${e.requestId}`
+    let shown = phrasesShown.get(instance)
+
+    if (shown?.mode !== e.props.mode) {
       picks[e.props.mode] += 1
+      shown = { mode: e.props.mode, pick: picks[e.props.mode], since: now }
+      phrasesShown.set(instance, shown)
     }
 
-    const age = Math.floor((now - phraseSince) / TICK_MS)
-    const phrase = phraseFor(e.props.mode, picks[e.props.mode])
+    const age = Math.floor((now - shown.since) / TICK_MS)
+    const phrase = phraseFor(e.props.mode, shown.pick)
     const draw = ANIMATIONS[animationFor(animation, phrase)] ?? ANIMATIONS.bar
 
     return next({

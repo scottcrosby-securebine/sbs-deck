@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
+import type { Engine, TestBody } from 'claude-code/testing'
 
-import { ANIMATIONS, SPINNER_PHRASES, animationFor, decrypt, livingWorld, phraseFor, scanBar } from './spinner'
+import { ANIMATIONS, AUTO, SPINNER_PHRASES, animationFor, decrypt, phraseFor, scanBar } from './spinner'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -450,7 +450,7 @@ test('a queued prompt that opens the next turn gets a running spinner', async ($
   await $.prompt.submit({ text: 'then this', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
   await $.turn.complete({ answer: 'done', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' })
 
-  // No turn is running: the clock moving draws nothing new.
+  // Between turns.
   await clock.advance(450)
   const idle = await $.ui.mount({
     plugin: 'sbs-deck',
@@ -559,7 +559,7 @@ test('an MCP result that mixes text with an image is left to the engine', async 
   await linked.unmount()
 })
 
-test('a phrase still resolves after the spinner has been away mid-turn', async ($, on) => {
+test('a spinner back on screen mid-turn is redrawn by a restarted timer', async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
   let word = ''
@@ -582,21 +582,16 @@ test('a phrase still resolves after the spinner has been away mid-turn', async (
   await $.turn.start({ text: 'go', turnId: 't1' })
   const first = await spinner('thinking')
   await first.unmount()
-
-  // The spinner is away for a minute, as behind a dialog: far past the idle
-  // stop of the timer that drives it.
+  // Away long enough for the timer to stop itself.
   await clock.advance(60_000)
 
-  // It comes back in a new state: the new phrase starts as noise...
+  // Back, and left on screen: only the timer redraws it, so the new phrase
+  // resolves only if the timer was started again.
   const back = await spinner('tool-use')
   expect(SPINNER_PHRASES['tool-use']).not.toContain(word)
-  await back.unmount()
-
-  // ...and two seconds later it has resolved.
   await clock.advance(2_000)
-  const later = await spinner('tool-use')
   expect(SPINNER_PHRASES['tool-use']).toContain(word)
-  await later.unmount()
+  await back.unmount()
 })
 
 test('the label names the account signed in to Claude Code and follows a new sign-in', async ($, on) => {
@@ -778,12 +773,6 @@ test('the animations hold up at the frame numbers a real clock gives', () => {
     expect(ANIMATIONS.life?.(frame), `life at ${frame}`).not.toBe('\u2800'.repeat(8))
   }
 
-  // Nor when a world and its seed are both empty: a fixed pattern stands in.
-  const empty = Array.from({ length: 4 }, () => Array.from({ length: 16 }, () => false))
-  const seeded = empty.map((row, y) => row.map((_, x) => x === 3 && y === 1))
-  expect(livingWorld(empty, seeded)).toBe(seeded)
-  expect(livingWorld(empty, empty).some(row => row.some(Boolean))).toBe(true)
-
   // The comet is on screen for all but a frame or two of its cycle.
   const blank = Array.from({ length: 23 }, (_, step) => ANIMATIONS.comet?.(start + step)).filter(
     frame => frame === '\u2800'.repeat(8),
@@ -918,4 +907,727 @@ test('on SBSForge the reply header takes the name the platform gave the agent', 
   expect(await ui.find({ type: 'Text', text: 'MILLER-WS' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'CLAUDE' })).toBeUndefined()
   await ui.unmount()
+})
+
+// Whether the row for a prompt with this text is drawn as still waiting.
+async function isQueued($: Engine, text: string): Promise<boolean> {
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text, origin: { kind: 'composer' }, isExpanded: false },
+  })
+  const found = await ui.find({ type: 'Text', text: 'QUEUED' })
+  await ui.unmount()
+
+  return found !== undefined
+}
+
+test('a queued prompt that quotes the engine framing is read whole, and only when the model gets it', async ($, on) => {
+  let dropAttachments = false
+  let rewriteTo: string | undefined
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('prompt.attachment', ($, e) => ({ text: dropAttachments ? null : (rewriteTo ?? e.text) }))
+  on('ui.render', { component: 'UserMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.text}</Text>
+  })
+  const lead = 'The user sent a new message while you were working:\n'
+
+  // A prompt that quotes the lead, and a second prompt equal to its last line.
+  const quoting = `quote:\n${lead}inner`
+  await $.prompt.submit({ text: quoting, wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.submit({ text: 'inner', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.attachment({ type: 'queued_command', text: `${lead}${quoting}${TAIL}`, origin: { kind: 'engine' } })
+  expect(await isQueued($, quoting)).toBe(false)
+  expect(await isQueued($, 'inner')).toBe(true)
+
+  // An attachment the rest of the chain leaves out of the request delivers nothing.
+  await $.prompt.submit({ text: 'held back', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  dropAttachments = true
+  await $.prompt.attachment({ type: 'queued_command', text: `${lead}held back${TAIL}`, origin: { kind: 'engine' } })
+  expect(await isQueued($, 'held back')).toBe(true)
+  dropAttachments = false
+  await $.prompt.attachment({ type: 'queued_command', text: `${lead}held back${TAIL}`, origin: { kind: 'engine' } })
+  expect(await isQueued($, 'held back')).toBe(false)
+
+  // One the chain rewrites delivers what it was rewritten to.
+  rewriteTo = `${lead}replacement${TAIL}`
+  await $.prompt.submit({ text: 'original', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.submit({ text: 'replacement', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.attachment({ type: 'queued_command', text: `${lead}original${TAIL}`, origin: { kind: 'engine' } })
+  expect(await isQueued($, 'original')).toBe(true)
+  expect(await isQueued($, 'replacement')).toBe(false)
+})
+
+test('with no home directory nothing is read from the working directory', async ($, on) => {
+  mock.store(on)
+  mock.env(on, { USER: 'tester' })
+  const paths: string[] = []
+  on('fs.read', ($, e) => {
+    paths.push(e.path)
+
+    return { value: JSON.stringify({ oauthAccount: { emailAddress: 'planted@example.io' } }) }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('ui.render', { component: 'UserMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.text}</Text>
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.prompt.submit({ text: 'hello', wait: false, origin: { kind: 'composer' } })
+  expect(paths).toEqual([])
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text: 'hello', origin: { kind: 'composer' }, isExpanded: false },
+  })
+  expect(await ui.find({ type: 'Text', text: 'tester' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'planted@example.io' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('an empty CLAUDE_CONFIG_DIR reads the account from HOME, as Claude Code does', async ($, on) => {
+  mock.store(on)
+  mock.env(on, { CLAUDE_CONFIG_DIR: '', HOME: '/home/tester', USER: 'tester' })
+  const paths: string[] = []
+  on('fs.read', ($, e) => {
+    paths.push(e.path)
+
+    return { deny: 'no such file' }
+  })
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+
+  await $.prompt.submit({ text: 'hello', wait: false, origin: { kind: 'composer' } })
+  expect(paths).toContain('/home/tester/.claude.json')
+})
+
+test('a control character in the account email does not cost the prompt box its styling', async ($, on) => {
+  mock.store(on)
+  mock.env(on, { HOME: '/home/tester', USER: 'tester' })
+  on('fs.read', () => ({ value: JSON.stringify({ oauthAccount: { emailAddress: 'pat\u001b[31m@example.io' } }) }))
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('ui.render', { component: 'UserMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.text}</Text>
+  })
+
+  await $.prompt.submit({ text: 'hello', wait: false, origin: { kind: 'composer' } })
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text: 'hello', origin: { kind: 'composer' }, isExpanded: false },
+  })
+  expect(await ui.find({ type: 'Text', text: 'OPERATOR' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'pat@example.io' })).toBeDefined()
+  await ui.unmount()
+})
+
+// The reply header's name for a set of launch variables and agent.yaml text
+// (undefined: no agent.yaml), with an optional /sbs name typed first.
+async function headerName(
+  $: Engine,
+  on: Parameters<TestBody>[1],
+  env: Record<string, string>,
+  yaml: string | undefined,
+  given?: string,
+): Promise<string> {
+  mock.clock(on)
+  mock.store(on)
+  mock.env(on, { HOME: '/home/agent', USER: 'agent', ...env })
+  on('fs.read', ($, e) =>
+    e.path === '/home/agent/.sbsforge/config/agent.yaml' && yaml !== undefined ? { value: yaml } : { deny: 'no such file' },
+  )
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  if (given !== undefined) {
+    await $.command.run({
+      command: 'sbs',
+      args: `name ${given}`,
+      origin: { kind: 'composer' },
+      presentation: { isFullscreen: false, columns: 120 },
+    })
+  }
+
+  const answer = await $.command.run({
+    command: 'sbs',
+    args: 'name',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: false, columns: 120 },
+  })
+
+  return /The reply header says (.*?)\. Set it/.exec(JSON.stringify(answer))?.[1] ?? ''
+}
+
+test('the launch variable beats agent.yaml', async ($, on) => {
+  expect(await headerName($, on, { SBS_AGENT_NAME: 'Forge' }, 'agent:\n  display_name: Miller\n')).toBe('FORGE')
+})
+
+test('with no agent.yaml the workspace variable names the agent', async ($, on) => {
+  expect(await headerName($, on, { SBSFORGE_AGENT_NAME: 'miller-ws' }, undefined)).toBe('MILLER-WS')
+})
+
+test('agent.yaml is read under agent:, without its quotes or a trailing comment', async ($, on) => {
+  const yaml = 'owner:\n  display_name: Scott Crosby\n\nagent:\n  name: m\n\n  display_name: "Miller" # shown in the header\nmodel: x\n'
+  expect(await headerName($, on, {}, yaml)).toBe('MILLER')
+})
+
+test('agent.yaml skips comment lines and nested maps in the agent block', async ($, on) => {
+  const yaml = 'agent: # this agent\n# who it is\n  channel:\n    display_name: The Channel\n  display_name: Miller\n'
+  expect(await headerName($, on, {}, yaml)).toBe('MILLER')
+})
+
+test('a long agent.yaml still gives the name', async ($, on) => {
+  expect(await headerName($, on, {}, `agent:\n  display_name: Miller\n${'  # note\n'.repeat(600_000)}`)).toBe('MILLER')
+})
+
+test('an agent.yaml name that is only a comment is no name', async ($, on) => {
+  expect(await headerName($, on, { SBSFORGE_AGENT_NAME: 'miller-ws' }, 'agent:\n  display_name: # unset\n')).toBe('MILLER-WS')
+})
+
+test('a plain agent.yaml name drops its comment', async ($, on) => {
+  expect(await headerName($, on, {}, 'agent:\r\n  display_name: Miller  # set by the wizard\r\n')).toBe('MILLER')
+})
+
+test('a long name is cut on a whole character', async ($, on) => {
+  const name = await headerName($, on, {}, undefined, 'ABCDEFGHIJKLMNOPQRSTUVW\u{1F916}X')
+  expect(name).toBe('ABCDEFGHIJKLMNOPQRSTUVW\u{1F916}')
+})
+
+test('/sbs status names the animation and the reply header', async ($, on) => {
+  mock.store(on)
+  mock.env(on, { USER: 'tester', SBS_AGENT_NAME: 'Forge' })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const run = async (args: string) =>
+    JSON.stringify(
+      await $.command.run({
+        command: 'sbs',
+        args,
+        origin: { kind: 'composer' },
+        presentation: { isFullscreen: false, columns: 120 },
+      }),
+    )
+
+  await run('anim fire')
+  expect(await run('status')).toContain('Spinner animation: fire. Reply header: FORGE.')
+})
+
+test('a new turn reads a waiting prompt only where it stands on whole lines', async ($, on) => {
+  mock.clock(on)
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('ui.render', { component: 'UserMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.text}</Text>
+  })
+
+  await $.prompt.submit({ text: 'do this', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.turn.start({ text: 'please do this now', turnId: 't2' })
+  expect(await isQueued($, 'do this')).toBe(true)
+  await $.turn.start({ text: 'first\ndo this\nlast', turnId: 't3' })
+  expect(await isQueued($, 'do this')).toBe(false)
+})
+
+// The engine's framing around a prompt it delivers mid-turn.
+const LEAD = 'The user sent a new message while you were working:\n'
+
+// /sbs with these words, as the person types it.
+const sbsCommand = ($: Engine, args: string) =>
+  $.command.run({
+    command: 'sbs',
+    args,
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: false, columns: 120 },
+  })
+
+// The engine's own prompt row, which the mod wraps.
+const engineUserMessage = (on: Parameters<TestBody>[1]) =>
+  on('ui.render', { component: 'UserMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.text}</Text>
+  })
+
+test('the /sbs command is registered under the name its handler answers to', async ($, on) => {
+  mock.store(on)
+  mock.env(on, { USER: 'tester' })
+  const names: string[] = []
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => {
+    names.push(e.name)
+
+    return { value: { command: e.name } }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(names).toContain('sbs')
+})
+
+test('a delivered prompt with no user framing is found by its whole lines', async ($, on) => {
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('prompt.attachment', ($, e) => ({ text: e.text }))
+  engineUserMessage(on)
+
+  await $.prompt.submit({ text: 'bridge ask', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.attachment({
+    type: 'queued_command',
+    text: 'Messages arrived in the bound thread while you were working:\nbridge ask',
+    origin: { kind: 'engine' },
+  })
+  expect(await isQueued($, 'bridge ask')).toBe(false)
+})
+
+test('a queued prompt that quotes the closing sentence is read whole', async ($, on) => {
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('prompt.attachment', ($, e) => ({ text: e.text }))
+  engineUserMessage(on)
+
+  const quoting = `before${TAIL}\nafter`
+  await $.prompt.submit({ text: quoting, wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.attachment({ type: 'queued_command', text: `${LEAD}${quoting}${TAIL}`, origin: { kind: 'engine' } })
+  expect(await isQueued($, quoting)).toBe(false)
+})
+
+test('a queued row already on screen turns gold when it is read', async ($, on) => {
+  const clock = mock.clock(on)
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('prompt.attachment', ($, e) => ({ text: e.text }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  engineUserMessage(on)
+  const row = (text: string) =>
+    $.ui.mount({
+      plugin: 'sbs-deck',
+      surface: 'terminal',
+      component: 'UserMessage',
+      props: { text, origin: { kind: 'composer' }, isExpanded: false },
+    })
+
+  // Read mid-turn.
+  await $.prompt.submit({ text: 'mid', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  const mid = await row('mid')
+  expect(await mid.find({ type: 'Text', text: 'QUEUED' })).toBeDefined()
+  await $.prompt.attachment({ type: 'queued_command', text: `${LEAD}mid${TAIL}`, origin: { kind: 'engine' } })
+  await clock.settle()
+  expect(await mid.find({ type: 'Text', text: 'QUEUED' })).toBeUndefined()
+  await mid.unmount()
+
+  // Read as the next turn.
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  const next = await row('next')
+  expect(await next.find({ type: 'Text', text: 'QUEUED' })).toBeDefined()
+  await $.turn.start({ text: 'next', turnId: 't2' })
+  await clock.settle()
+  expect(await next.find({ type: 'Text', text: 'QUEUED' })).toBeUndefined()
+  await next.unmount()
+})
+
+test('a prompt row already on screen follows a new sign-in', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  mock.env(on, { HOME: '/home/tester', USER: 'tester' })
+  let signedIn = 'pat@example.io'
+  on('fs.read', () => ({ value: JSON.stringify({ oauthAccount: { emailAddress: signedIn } }) }))
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  engineUserMessage(on)
+
+  await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text: 'hi', origin: { kind: 'composer' }, isExpanded: false },
+  })
+  expect(await ui.find({ type: 'Text', text: 'pat@example.io' })).toBeDefined()
+  signedIn = 'sam@example.io'
+  await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'composer' } })
+  await clock.settle()
+  expect(await ui.find({ type: 'Text', text: 'sam@example.io' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a reply header already on screen follows /sbs name', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('ui.render', { component: 'AssistantMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.text}</Text>
+  })
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'AssistantMessage',
+    requestId: 'm1',
+    props: { text: 'a reply', isFirstOfReply: true },
+  })
+  expect(await ui.find({ type: 'Text', text: 'CLAUDE' })).toBeDefined()
+  await sbsCommand($, 'name Night')
+  await clock.settle()
+  expect(await ui.find({ type: 'Text', text: 'NIGHT' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('/sbs name and its clear are remembered into the next session', async ($, on) => {
+  mock.clock(on)
+  mock.env(on, { USER: 'tester' })
+  const stored: Record<string, unknown> = {}
+  on('store.get', ($, e) => ({ value: stored[e.key] }))
+  on('store.set', ($, e) => {
+    stored[e.key] = e.value
+
+    return { value: undefined }
+  })
+  on('store.delete', ($, e) => {
+    delete stored[e.key]
+
+    return { value: undefined }
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  const start = () => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  await start()
+  await sbsCommand($, 'name Night')
+  await start()
+  expect(JSON.stringify(await sbsCommand($, 'name'))).toContain('says NIGHT.')
+  await sbsCommand($, 'name clear')
+  await start()
+  expect(JSON.stringify(await sbsCommand($, 'name'))).toContain('says CLAUDE.')
+})
+
+test('a control character in the agent name is dropped', async ($, on) => {
+  expect(await headerName($, on, { SBS_AGENT_NAME: 'Fo\u0007rge' }, undefined)).toBe('FORGE')
+})
+
+test('an MCP result of plain text blocks is colored by the mod', async ($, on) => {
+  mock.store(on)
+  on('ui.render', { component: 'ToolResult' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>engine drew it</Text>
+  })
+
+  await quietOff($)
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'ToolResult',
+    props: { tool_use_id: 'm1', tool: 'mcp__net__show', output: [{ type: 'text', text: 'link is up' }], isErrored: false },
+  })
+  expect(await ui.find({ type: 'Text', text: 'engine drew it' })).toBeUndefined()
+  expect((await ui.findAll({ type: 'Text', text: 'up' })).find(found => found.text === 'up')?.props.color).toBe('#3EE08A')
+  await ui.unmount()
+})
+
+// The word and suffix the Spinner was last drawn with.
+function spinnerProbe(on: Parameters<TestBody>[1]): { word: string; suffix: string } {
+  const drawn = { word: '', suffix: '' }
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    drawn.word = e.props.word
+    drawn.suffix = e.props.suffix
+
+    return <Text>spinner</Text>
+  })
+
+  return drawn
+}
+
+// The main loop's spinner: one instance, the same id on every surface.
+const spinnerOn = ($: Engine, mode: 'requesting' | 'thinking' | 'tool-input' | 'tool-use', surface: 'terminal' | 'desktop' = 'terminal') =>
+  $.ui.mount({
+    plugin: 'sbs-deck',
+    surface,
+    component: 'Spinner',
+    requestId: 'main',
+    props: { word: 'Baking', message: null, suffix: '…', mode },
+  })
+
+test('in auto the spinner draws the animation its phrase calls for', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  const drawn = spinnerProbe(on)
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const modes = ['thinking', 'tool-use', 'tool-input', 'requesting'] as const
+  let themed = 0
+
+  for (let step = 0; step < 60; step += 1) {
+    const mode = modes[step % modes.length] ?? 'thinking'
+    const ui = await spinnerOn($, mode)
+    await clock.advance(1_500)
+    // Judged on a frame where the phrase reads whole: a resolved phrase still
+    // flickers a character to noise now and then. The bar is the only
+    // animation drawn with these cells.
+    if (SPINNER_PHRASES[mode].includes(drawn.word)) {
+      const name = animationFor(AUTO, drawn.word)
+      themed += name === 'bar' ? 0 : 1
+      expect(drawn.suffix.includes('▰'), drawn.word).toBe(name === 'bar')
+    }
+
+    await ui.unmount()
+  }
+
+  expect(themed).toBeGreaterThan(0)
+})
+
+test('a subagent finishing does not stop the main turn\'s spinner', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+  const drawn = spinnerProbe(on)
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const ui = await spinnerOn($, 'tool-use')
+  await $.turn.complete({ answer: 'found it', durationMs: 5, isAborted: false, turnId: 's1', agentId: 'agent-1', reason: 'answer' })
+  // Left on screen and in the same state, only the timer redraws it.
+  expect(SPINNER_PHRASES['tool-use']).not.toContain(drawn.word)
+  await clock.advance(2_000)
+  expect(SPINNER_PHRASES['tool-use']).toContain(drawn.word)
+  await ui.unmount()
+})
+
+test('spinners on the terminal and the desktop each resolve their own phrase', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  const words: Record<string, string> = {}
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    words[e.surface] = e.props.word
+
+    return <Text>spinner</Text>
+  })
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const terminal = await spinnerOn($, 'tool-input', 'terminal')
+  const desktop = await spinnerOn($, 'tool-use', 'desktop')
+  await clock.advance(3_000)
+  expect(SPINNER_PHRASES['tool-input']).toContain(words.terminal)
+  expect(SPINNER_PHRASES['tool-use']).toContain(words.desktop)
+  await terminal.unmount()
+  await desktop.unmount()
+})
+
+test('a subagent starting keeps the main turn\'s phrase and its one reply header', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('ui.render', { component: 'AssistantMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.text}</Text>
+  })
+  const drawn = spinnerProbe(on)
+  const hasHeader = async (requestId: string) => {
+    const ui = await $.ui.mount({
+      plugin: 'sbs-deck',
+      surface: 'terminal',
+      component: 'AssistantMessage',
+      requestId,
+      props: { text: 'a reply', isFirstOfReply: true },
+    })
+    const found = await ui.find({ type: 'Text', text: 'CLAUDE' })
+    await ui.unmount()
+
+    return found !== undefined
+  }
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  expect(await hasHeader('m1')).toBe(true)
+  const spinner = await spinnerOn($, 'tool-use')
+  await clock.advance(2_000)
+  const phrase = drawn.word
+  expect(SPINNER_PHRASES['tool-use']).toContain(phrase)
+
+  await $.turn.start({ text: 'look this up', turnId: 's1', agentId: 'agent-1' })
+  await clock.advance(150)
+  expect(drawn.word).toBe(phrase)
+  expect(await hasHeader('m2')).toBe(false)
+  await spinner.unmount()
+})
+
+test('a prompt queued while its row is on screen turns slate at once', async ($, on) => {
+  const clock = mock.clock(on)
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  engineUserMessage(on)
+
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text: 'one more', origin: { kind: 'composer' }, isExpanded: false },
+  })
+  expect(await ui.find({ type: 'Text', text: 'QUEUED' })).toBeUndefined()
+  await $.prompt.submit({ text: 'one more', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await clock.settle()
+  expect(await ui.find({ type: 'Text', text: 'QUEUED' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a prompt read while the rest of the submit chain is still running stays read', async ($, on) => {
+  let release = () => {}
+  let entered = () => {}
+  const held = new Promise<void>(resolve => {
+    release = resolve
+  })
+  const hasEntered = new Promise<void>(resolve => {
+    entered = resolve
+  })
+  on('prompt.submit', async ($, e) => {
+    entered()
+    await held
+
+    return { text: e.text }
+  })
+  on('prompt.attachment', ($, e) => ({ text: e.text }))
+  engineUserMessage(on)
+
+  const submitted = $.prompt.submit({ text: 'quick one', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  // Read once the prompt has passed the mod and the rest of the chain holds it.
+  await hasEntered
+  await $.prompt.attachment({ type: 'queued_command', text: `${LEAD}quick one${TAIL}`, origin: { kind: 'engine' } })
+  release()
+  await submitted
+  expect(await isQueued($, 'quick one')).toBe(false)
+})
+
+test('spinners for two agents on one surface each resolve and keep their own phrase', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  const words: Record<string, string> = {}
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    words[e.requestId] = e.props.word
+
+    return <Text>spinner</Text>
+  })
+  const spinnerFor = (requestId: string, mode: 'thinking' | 'tool-use') =>
+    $.ui.mount({
+      plugin: 'sbs-deck',
+      surface: 'terminal',
+      component: 'Spinner',
+      requestId,
+      props: { word: 'Baking', message: null, suffix: '…', mode },
+    })
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const first = await spinnerFor('agent-a', 'thinking')
+  await clock.advance(2_000)
+  const settled = words['agent-a']
+  expect(SPINNER_PHRASES.thinking).toContain(settled)
+
+  // A second spinner enters the same state, then another.
+  const second = await spinnerFor('agent-b', 'thinking')
+  const third = await spinnerFor('agent-c', 'tool-use')
+  await clock.advance(2_000)
+  expect(words['agent-a']).toBe(settled)
+  expect(SPINNER_PHRASES.thinking).toContain(words['agent-b'])
+  expect(SPINNER_PHRASES['tool-use']).toContain(words['agent-c'])
+  await first.unmount()
+  await second.unmount()
+  await third.unmount()
+})
+
+test('a name saved by /sbs name is read back when a session starts', async ($, on) => {
+  mock.clock(on)
+  mock.env(on, { USER: 'tester' })
+  const stored: Record<string, unknown> = { agentName: 'Night' }
+  on('store.get', ($, e) => ({ value: stored[e.key] }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(JSON.stringify(await sbsCommand($, 'name'))).toContain('says NIGHT.')
+})
+
+test('a prompt taken back and sent again turns gold once it is read', async ($, on) => {
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('prompt.attachment', ($, e) => ({ text: e.text }))
+  engineUserMessage(on)
+
+  // Queued, then taken back out of the queue: no event says so.
+  await $.prompt.submit({ text: 'again', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.submit({ text: 'again', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.attachment({ type: 'queued_command', text: `${LEAD}again${TAIL}`, origin: { kind: 'engine' } })
+  expect(await isQueued($, 'again')).toBe(false)
+})
+
+test('a background agent\'s spinner keeps moving after the main turn ends', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+  const words: Record<string, string> = {}
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    words[e.requestId] = e.props.word
+
+    return <Text>spinner</Text>
+  })
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const background = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'Spinner',
+    requestId: 'agent-1',
+    props: { word: 'Baking', message: null, suffix: '…', mode: 'tool-use' },
+  })
+  await $.turn.complete({ answer: 'started it', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' })
+  expect(SPINNER_PHRASES['tool-use']).not.toContain(words['agent-1'])
+  await clock.advance(2_000)
+  expect(SPINNER_PHRASES['tool-use']).toContain(words['agent-1'])
+  await background.unmount()
+})
+
+test('a shell result that is an image is left to the engine', async ($, on) => {
+  mock.store(on)
+  on('ui.render', { component: 'ToolResult' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>engine drew it</Text>
+  })
+
+  await quietOff($)
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'ToolResult',
+    props: {
+      tool_use_id: 'b1',
+      tool: 'Bash',
+      output: { stdout: 'iVBORw0KGgoAAAANSUhEUgAA', stderr: '', interrupted: false, isImage: true },
+      isErrored: false,
+    },
+  })
+  expect(await ui.find({ type: 'Text', text: 'engine drew it' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a long run of spaces in an agent.yaml name reads quickly', async ($, on) => {
+  const started = Date.now()
+  const name = await headerName($, on, {}, `agent:\n  display_name: Mill${' '.repeat(100_000)}er # note\n`)
+  expect(name.startsWith('MILL')).toBe(true)
+  expect(Date.now() - started).toBeLessThan(1_000)
 })

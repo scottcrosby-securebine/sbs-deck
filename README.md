@@ -8,12 +8,12 @@ what Claude does or what Claude reads.
 
 | Piece | What you see |
 |---|---|
-| Prompt box | Each of your messages sits in a gold box labelled `OPERATOR // UPLINK: <your Claude account email>`, with a shield icon |
+| Prompt box | Each of your messages sits in a gold box labelled `OPERATOR // UPLINK: <the email of the Claude account signed in now>`, with a shield icon |
 | Queued messages | A message you type while Claude is still working sits in a slate-blue box labelled `OPERATOR // QUEUED:`. It turns gold when Claude has been handed it |
 | Reply header | The first block of each reply is headed `CLAUDE // DOWNLINK`, with a robot icon. The name can be the agent's own: see `/sbs name` |
 | Quiet tool rows | Each tool call is one line saying what it is for: `▸` running, `✓` finished, `✗` failed. Output is hidden unless the call failed |
 | Colored output | With quiet rows off, shell and MCP output is colored by pattern: up/down states, IP and MAC addresses, interface names, numbers with units, paths, JSON |
-| Spinner | While Claude works, a science-fiction phrase for what it is doing decrypts out of noise, with a scanning bar. A new phrase each time the state changes |
+| Spinner | While Claude works, a science-fiction phrase for what it is doing decrypts out of noise, followed by a small animation: a scanning bar, or one themed to the phrase. A new phrase each time the state changes |
 
 The spinner has 295 phrases across five states (connecting, thinking, setting up
 a tool call, running it, answering). Each is filed under the state its plain
@@ -24,8 +24,9 @@ meaning suggests, so you can tell at a glance what Claude is doing.
 
 - Claude Code 2.1.287 or later. Mods are an early-access feature and may change
   between releases.
-- A terminal font with Nerd Font icons, for the shield and robot. Without one
-  they show as empty boxes; everything else works.
+- A terminal font with Nerd Font icons (Nerd Fonts 3.0 or later, where the
+  robot icon lives), for the shield and robot. Without one they show as empty
+  boxes; everything else works.
 - `jq`, for the install script.
 
 ## Install
@@ -62,7 +63,7 @@ claude plugin install sbs-deck@sbs-deck
 | `/sbs reset` | Styling on with its defaults: quiet on, color on |
 | `/sbs quiet on`, `/sbs quiet off` | One-line tool rows with output hidden, or full commands and their output |
 | `/sbs color on`, `/sbs color off` | Pattern coloring of output. Only seen with quiet off |
-| `/sbs anim [name]` | The animation after the spinner phrase. In `auto` (the default) a phrase gets a themed animation only where its own words call for one: rain for the digital rain, a scanning eye for a scan, stars for a jump, a filling bar for loading. Every other phrase keeps the plain `bar`. Or fix one: `bar`, `wave`, `cylon`, `rain`, `pulse`, `helix`, `load`, `stars`, `sonar`, `fire`, `comet`, `pong`, `invader`, `life`, `warp`, `orbit`, `morse`, `shield`, `binary`, `glitch`, `dial`, `eq`. With no name it steps to the next |
+| `/sbs anim [name]` | The animation after the spinner phrase. In `auto` (the default) a phrase gets a themed animation only where its own words call for one: rain for the digital rain, streaks for the jump to lightspeed, a sonar ping for a sweep or a tricorder scan, a filling bar for loading. Every other phrase keeps the plain `bar`. Or fix one: `bar`, `wave`, `cylon`, `rain`, `pulse`, `helix`, `load`, `stars`, `sonar`, `fire`, `comet`, `pong`, `invader`, `life`, `warp`, `orbit`, `morse`, `shield`, `binary`, `glitch`, `dial`, `eq`. With no name it steps to the next |
 | `/sbs name <name>` | What the reply header calls the assistant, in place of `CLAUDE`. `/sbs name clear` undoes it. Without it, the name comes from the first of: `SBS_AGENT_NAME` in the environment; on the SBSForge platform, the agent's `display_name` in `~/.sbsforge/config/agent.yaml`; the platform's `SBSFORGE_AGENT_NAME`; and otherwise `CLAUDE` |
 
 `/sbs quiet` and `/sbs color` with no second word flip that switch. The
@@ -89,18 +90,24 @@ claude plugin test .
 
 - The label shows the email of the account signed in to Claude Code, read
   from `.claude.json` (the record the status line uses) each time you send a
-  prompt, so a new sign-in shows on your next message. Where that record
-  cannot be read, the machine login name is shown.
+  prompt, so a new sign-in shows on your next message, and on the earlier
+  messages too. Where that record cannot be read, the machine login name is
+  shown.
 - Quiet rows cannot be expanded with ctrl+o. Use `/sbs quiet` to see the detail.
 - With quiet rows off and coloring on, a long shell result shows its first 20
   lines and a count of the rest.
 - A queued message is recognised by its text. Send the same text twice, once
-  queued and once not, and both show as queued until one is read.
+  queued and once not, and both show as queued until one is read. A queued
+  message you take back out of the queue leaves any row with the same text
+  slate-blue until that text is sent again. If another plugin drops or
+  rewrites a message you queue, rows with the text you typed can stay
+  slate-blue, and a rewritten message shows gold while it waits.
 - What the mod remembers about queued messages and spinner position is
   forgotten if the mod reloads mid-session.
-- Recognising a delivered message relies on the wording Claude Code 2.1.289
-  wraps around it. If a later release changes that wording, a queued message
-  turns gold when the next turn starts instead of the moment it is read.
+- Recognising a delivered message relies on the wording Claude Code wraps
+  around it, checked against 2.1.302. If a later release changes that
+  wording, a message read mid-turn can stay slate-blue for the rest of the
+  session.
 - The pattern coloring is plain text matching, so words such as `up` or
   `active` inside ordinary sentences in command output are colored too.
 
@@ -112,10 +119,11 @@ accurate to its source, no suggestion that Claude has failed, and short enough
 for the line. The last five passes over the list found nothing to stop it.
 
 The code was reviewed in the same rounds. Every finding raised was fixed and
-given a test. Changes made after the last review pass have not been seen by a
-reviewer: the final two fixes (delivered-message matching and mixed MCP
-results), the slate-blue queue color, the icons, the rename to `sbs-deck`, and
-the 1.0.1 spinner fix (a phrase could stay scrambled for the rest of a turn
-after the spinner had been off screen) and the account name in the label. The
-test suite passes, 28 tests, on
-Claude Code 2.1.289.
+given a test. The changes made after those rounds (delivered-message
+matching, mixed MCP results, the slate-blue queue color, the icons, the rename
+to `sbs-deck`, the 1.0.1 spinner fix, the account name in the label, the
+thirteen added animations and the agent name in the reply header) were audited
+in October 2026 by independent reviewers, one of them a different model
+family. Every blocking finding was fixed, each code fix with a test that
+fails without it, or, by the owner's ruling, is listed under Known limits.
+The test suite passes, 63 tests, on Claude Code 2.1.302.
