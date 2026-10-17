@@ -1,5 +1,5 @@
 // The spinner line's text for one animation tick: a phrase for what the turn
-// is doing, resolving out of noise when it changes, and a scanning bar. The
+// is doing, resolving out of noise when it changes, and a small animation. The
 // phrases are science-fiction references, each filed under the state its
 // plain sense reads as at a glance.
 
@@ -437,17 +437,6 @@ const MORSE = '1010100011101010100010101000000'
 // Conway's Game of Life on the strip, wrapped at its edges: a scattering of
 // cells run for a couple of dozen generations, then a fresh scattering.
 const LIFE_RUN = 24
-const LIFE_FALLBACK = ['..#......##.....', '...#.....##.....', '.###............', '................'].map(row =>
-  [...row].map(cell => cell === '#'),
-)
-
-// The world to draw: one that has died out shows its seed again, and a seed
-// that came up empty shows a fixed pattern, so the strip is never blank.
-export function livingWorld(grid: boolean[][], seed: boolean[][]): boolean[][] {
-  const hasLife = (world: boolean[][]) => world.some(row => row.some(Boolean))
-
-  return hasLife(grid) ? grid : hasLife(seed) ? seed : LIFE_FALLBACK
-}
 
 function lifeAt(frame: number): boolean[][] {
   const epoch = Math.floor(frame / LIFE_RUN)
@@ -475,7 +464,10 @@ function lifeAt(frame: number): boolean[][] {
     )
   }
 
-  return livingWorld(grid, seed)
+  // A world that has died out shows its seed again, so the strip is never
+  // blank: no seed is empty (every one of the 2^26 distinct seeds the wrapped
+  // hash can give has at least three live cells).
+  return grid.some(row => row.some(Boolean)) ? grid : seed
 }
 
 export const ANIMATIONS: Readonly<Record<string, (frame: number) => string>> = {
@@ -609,9 +601,9 @@ export const ANIMATIONS: Readonly<Record<string, (frame: number) => string>> = {
 }
 
 // In `auto`, a phrase gets a themed animation only where its own words call
-// for one: rain for the digital rain, a scanning eye for a scan, stars for a
-// jump. Every other phrase keeps the plain bar. The first rule that matches
-// wins.
+// for one: rain for the digital rain, streaks for the jump to lightspeed, a
+// sonar ping for a sweep. Every other phrase keeps the plain bar. The first
+// rule that matches wins.
 export const AUTO = 'auto'
 
 const THEMES: readonly (readonly [string, RegExp])[] = [
