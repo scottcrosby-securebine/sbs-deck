@@ -121,11 +121,11 @@ function comparable(text: string): string {
 // each match taken out of the text before the next is looked for: a prompt
 // that only occurs inside a line, of the engine's framing or of a longer
 // delivered prompt, is not counted as delivered.
-function deliveredAmong(waiting: ReadonlySet<string>, text: string): string[] {
+function deliveredAmong(waiting: ReadonlyMap<string, number>, text: string): string[] {
   let remaining = comparable(text)
   const delivered: string[] = []
 
-  for (const prompt of [...waiting].sort((a, b) => b.length - a.length)) {
+  for (const prompt of [...waiting.keys()].sort((a, b) => b.length - a.length)) {
     // Padded with line breaks, the match starts and ends on one, and its index
     // in the padded text is where the prompt starts in the unpadded one.
     const at = prompt.length > 0 ? `\n${remaining}\n`.indexOf(`\n${prompt}\n`) : -1
@@ -150,7 +150,7 @@ const DELIVERY_TAIL = '\n\nThis is how Claude Code surfaces'
 // to the last tail, so a prompt that quotes the framing itself is one prompt,
 // then each framed part, for several prompts delivered together. Text with no
 // framing is searched by whole lines.
-function deliveredByAttachment(waiting: ReadonlySet<string>, text: string): string[] {
+function deliveredByAttachment(waiting: ReadonlyMap<string, number>, text: string): string[] {
   const unified = text.replaceAll('\r\n', '\n')
   const start = unified.indexOf(DELIVERY_LEAD)
 
@@ -170,6 +170,24 @@ function deliveredByAttachment(waiting: ReadonlySet<string>, text: string): stri
     .slice(1)
     .map(part => comparable(part.split(DELIVERY_TAIL)[0] ?? ''))
     .filter(payload => waiting.has(payload))
+}
+
+// One more prompt with this text waits.
+function queuePrompt(waiting: Map<string, number>, prompt: string): void {
+  waiting.set(prompt, (waiting.get(prompt) ?? 0) + 1)
+}
+
+// One prompt with this text no longer waits. False when none did.
+function unqueuePrompt(waiting: Map<string, number>, prompt: string): boolean {
+  const count = waiting.get(prompt) ?? 0
+
+  if (count > 1) {
+    waiting.set(prompt, count - 1)
+  } else {
+    waiting.delete(prompt)
+  }
+
+  return count > 0
 }
 
 // The email of the account signed in to Claude Code, from the same record the
@@ -280,9 +298,10 @@ export const register: Register = on => {
   const drawnReplies = new Set<string>()
   let earlierReplies: ReadonlySet<string> = new Set<string>()
   // The prompts typed while a turn was still running and not yet handed to the
-  // model, by their text. Their rows draw apart until they are read, then as
-  // ordinary prompts. Module state: a reload forgets it.
-  const waitingPrompts = new Set<string>()
+  // model, by their text, with how many of each wait. Their rows draw apart
+  // until they are read, then as ordinary prompts. Module state: a reload
+  // forgets it.
+  const waitingPrompts = new Map<string, number>()
 
   // The switches, kept in the plugin's store so they hold across sessions: the
   // whole mod, quiet tool rows, and the pattern coloring of results. A result
@@ -478,19 +497,17 @@ export const register: Register = on => {
     const isWaiting = e.turnId !== undefined && (e.origin.kind === 'composer' || e.origin.kind === 'bridge')
 
     if (isWaiting) {
-      waitingPrompts.add(typed)
+      queuePrompt(waitingPrompts, typed)
       $.ui.invalidate('ui.render')
     }
 
     const result = await next(e)
 
-    // One the chain dropped never entered, and one it rewrote waits under its
-    // new text, unless it has been read meanwhile.
-    if (isWaiting && (result.drop !== undefined || comparable(result.text) !== typed) && waitingPrompts.delete(typed)) {
-      if (result.drop === undefined) {
-        waitingPrompts.add(comparable(result.text))
-      }
-
+    // One the chain dropped never entered. One it rewrote no longer reads as
+    // the text that waits, and may be read under its new text before this
+    // returns, so it is let go: its row draws gold while it waits.
+    if (isWaiting && (result.drop !== undefined || comparable(result.text) !== typed)) {
+      unqueuePrompt(waitingPrompts, typed)
       $.ui.invalidate('ui.render')
     }
 
@@ -506,7 +523,7 @@ export const register: Register = on => {
 
     if (e.type === 'queued_command' && typeof result.text === 'string') {
       for (const prompt of deliveredByAttachment(waitingPrompts, result.text)) {
-        waitingPrompts.delete(prompt)
+        unqueuePrompt(waitingPrompts, prompt)
         $.ui.invalidate('ui.render')
       }
     }
@@ -523,7 +540,7 @@ export const register: Register = on => {
     }
 
     for (const prompt of deliveredAmong(waitingPrompts, e.text)) {
-      waitingPrompts.delete(prompt)
+      unqueuePrompt(waitingPrompts, prompt)
       $.ui.invalidate('ui.render')
     }
 

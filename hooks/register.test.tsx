@@ -1350,11 +1350,13 @@ function spinnerProbe(on: Parameters<TestBody>[1]): { word: string; suffix: stri
   return drawn
 }
 
+// The main loop's spinner: one instance, the same id on every surface.
 const spinnerOn = ($: Engine, mode: 'requesting' | 'thinking' | 'tool-input' | 'tool-use', surface: 'terminal' | 'desktop' = 'terminal') =>
   $.ui.mount({
     plugin: 'sbs-deck',
     surface,
     component: 'Spinner',
+    requestId: 'main',
     props: { word: 'Baking', message: null, suffix: '…', mode },
   })
 
@@ -1453,15 +1455,24 @@ test('a queued prompt waits as the rest of the chain let it in', async ($, on) =
   on('prompt.submit', ($, e) => (isDropped ? { drop: 'not now' } : { text: rewrite ?? e.text }))
   engineUserMessage(on)
 
+  // A rewritten one is let go: it may be read under its new text before the
+  // chain returns, and must not be left waiting after that.
   rewrite = 'rewritten ask'
   await $.prompt.submit({ text: 'typed ask', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
-  expect(await isQueued($, 'rewritten ask')).toBe(true)
+  expect(await isQueued($, 'rewritten ask')).toBe(false)
   expect(await isQueued($, 'typed ask')).toBe(false)
 
   rewrite = undefined
   isDropped = true
   await $.prompt.submit({ text: 'dropped ask', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
   expect(await isQueued($, 'dropped ask')).toBe(false)
+
+  // A dropped copy of a prompt that is already waiting leaves that one waiting.
+  isDropped = false
+  await $.prompt.submit({ text: 'same ask', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  isDropped = true
+  await $.prompt.submit({ text: 'same ask', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  expect(await isQueued($, 'same ask')).toBe(true)
 })
 
 test('a subagent starting keeps the main turn\'s phrase and its one reply header', async ($, on) => {
