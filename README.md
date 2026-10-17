@@ -100,7 +100,7 @@ claude plugin test .
 - What the mod remembers about queued messages and spinner position is
   forgotten if the mod reloads mid-session.
 - Recognising a delivered message relies on the wording Claude Code wraps
-  around it, the same in 2.1.289 and 2.1.302. If a later release changes that
+  around it, checked against 2.1.302. If a later release changes that
   wording, a message read mid-turn can stay slate-blue for the rest of the
   session.
 - The pattern coloring is plain text matching, so words such as `up` or

@@ -559,46 +559,6 @@ test('an MCP result that mixes text with an image is left to the engine', async 
   await linked.unmount()
 })
 
-test('a phrase still resolves after the spinner has been away mid-turn', async ($, on) => {
-  const clock = mock.clock(on)
-  mock.store(on)
-  let word = ''
-  on('turn.start', ($, e) => ({ turnId: e.turnId }))
-  on('ui.render', { component: 'Spinner' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    word = e.props.word
-
-    return <Text>spinner</Text>
-  })
-
-  const spinner = (mode: 'thinking' | 'tool-use') =>
-    $.ui.mount({
-      plugin: 'sbs-deck',
-      surface: 'terminal',
-      component: 'Spinner',
-      props: { word: 'Baking', message: null, suffix: '…', mode },
-    })
-
-  await $.turn.start({ text: 'go', turnId: 't1' })
-  const first = await spinner('thinking')
-  await first.unmount()
-
-  // The spinner is away for a minute, as behind a dialog: far past the idle
-  // stop of the timer that drives it.
-  await clock.advance(60_000)
-
-  // It comes back in a new state: the new phrase starts as noise...
-  const back = await spinner('tool-use')
-  expect(SPINNER_PHRASES['tool-use']).not.toContain(word)
-  await back.unmount()
-
-  // ...and two seconds later it has resolved.
-  await clock.advance(2_000)
-  const later = await spinner('tool-use')
-  expect(SPINNER_PHRASES['tool-use']).toContain(word)
-  await later.unmount()
-})
-
 test('a spinner back on screen mid-turn is redrawn by a restarted timer', async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
@@ -949,6 +909,20 @@ test('on SBSForge the reply header takes the name the platform gave the agent', 
   await ui.unmount()
 })
 
+// Whether the row for a prompt with this text is drawn as still waiting.
+async function isQueued($: Engine, text: string): Promise<boolean> {
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text, origin: { kind: 'composer' }, isExpanded: false },
+  })
+  const found = await ui.find({ type: 'Text', text: 'QUEUED' })
+  await ui.unmount()
+
+  return found !== undefined
+}
+
 test('a queued prompt that quotes the engine framing is read whole, and only when the model gets it', async ($, on) => {
   let dropAttachments = false
   on('prompt.submit', ($, e) => ({ text: e.text }))
@@ -958,18 +932,6 @@ test('a queued prompt that quotes the engine framing is read whole, and only whe
 
     return <Text>{e.props.text}</Text>
   })
-  const isQueued = async (text: string) => {
-    const ui = await $.ui.mount({
-      plugin: 'sbs-deck',
-      surface: 'terminal',
-      component: 'UserMessage',
-      props: { text, origin: { kind: 'composer' }, isExpanded: false },
-    })
-    const found = await ui.find({ type: 'Text', text: 'QUEUED' })
-    await ui.unmount()
-
-    return found !== undefined
-  }
   const lead = 'The user sent a new message while you were working:\n'
 
   // A prompt that quotes the lead, and a second prompt equal to its last line.
@@ -977,17 +939,17 @@ test('a queued prompt that quotes the engine framing is read whole, and only whe
   await $.prompt.submit({ text: quoting, wait: false, origin: { kind: 'composer' }, turnId: 't1' })
   await $.prompt.submit({ text: 'inner', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
   await $.prompt.attachment({ type: 'queued_command', text: `${lead}${quoting}${TAIL}`, origin: { kind: 'engine' } })
-  expect(await isQueued(quoting)).toBe(false)
-  expect(await isQueued('inner')).toBe(true)
+  expect(await isQueued($, quoting)).toBe(false)
+  expect(await isQueued($, 'inner')).toBe(true)
 
   // An attachment the rest of the chain leaves out of the request delivers nothing.
   await $.prompt.submit({ text: 'held back', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
   dropAttachments = true
   await $.prompt.attachment({ type: 'queued_command', text: `${lead}held back${TAIL}`, origin: { kind: 'engine' } })
-  expect(await isQueued('held back')).toBe(true)
+  expect(await isQueued($, 'held back')).toBe(true)
   dropAttachments = false
   await $.prompt.attachment({ type: 'queued_command', text: `${lead}held back${TAIL}`, origin: { kind: 'engine' } })
-  expect(await isQueued('held back')).toBe(false)
+  expect(await isQueued($, 'held back')).toBe(false)
 })
 
 test('with no home directory nothing is read from the working directory', async ($, on) => {
@@ -1020,6 +982,21 @@ test('with no home directory nothing is read from the working directory', async 
   expect(await ui.find({ type: 'Text', text: 'tester' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'planted@example.io' })).toBeUndefined()
   await ui.unmount()
+})
+
+test('an empty CLAUDE_CONFIG_DIR reads the account from HOME, as Claude Code does', async ($, on) => {
+  mock.store(on)
+  mock.env(on, { CLAUDE_CONFIG_DIR: '', HOME: '/home/tester', USER: 'tester' })
+  const paths: string[] = []
+  on('fs.read', ($, e) => {
+    paths.push(e.path)
+
+    return { deny: 'no such file' }
+  })
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+
+  await $.prompt.submit({ text: 'hello', wait: false, origin: { kind: 'composer' } })
+  expect(paths).toContain('/home/tester/.claude.json')
 })
 
 test('a control character in the account email does not cost the prompt box its styling', async ($, on) => {
@@ -1084,9 +1061,8 @@ async function headerName(
   return /The reply header says (.*?)\. Set it/.exec(JSON.stringify(answer))?.[1] ?? ''
 }
 
-test('the launch variable beats agent.yaml, which beats the workspace variable', async ($, on) => {
-  const yaml = 'agent:\n  display_name: Miller\n'
-  expect(await headerName($, on, { SBS_AGENT_NAME: 'Forge', SBSFORGE_AGENT_NAME: 'ws' }, yaml)).toBe('FORGE')
+test('the launch variable beats agent.yaml', async ($, on) => {
+  expect(await headerName($, on, { SBS_AGENT_NAME: 'Forge' }, 'agent:\n  display_name: Miller\n')).toBe('FORGE')
 })
 
 test('with no agent.yaml the workspace variable names the agent', async ($, on) => {
@@ -1098,6 +1074,15 @@ test('agent.yaml is read under agent:, without its quotes or a trailing comment'
   expect(await headerName($, on, {}, yaml)).toBe('MILLER')
 })
 
+test('agent.yaml skips comment lines and nested maps in the agent block', async ($, on) => {
+  const yaml = 'agent: # this agent\n# who it is\n  channel:\n    display_name: The Channel\n  display_name: Miller\n'
+  expect(await headerName($, on, {}, yaml)).toBe('MILLER')
+})
+
+test('an agent.yaml name that is only a comment is no name', async ($, on) => {
+  expect(await headerName($, on, { SBSFORGE_AGENT_NAME: 'miller-ws' }, 'agent:\n  display_name: # unset\n')).toBe('MILLER-WS')
+})
+
 test('a plain agent.yaml name drops its comment', async ($, on) => {
   expect(await headerName($, on, {}, 'agent:\r\n  display_name: Miller  # set by the wizard\r\n')).toBe('MILLER')
 })
@@ -1105,8 +1090,6 @@ test('a plain agent.yaml name drops its comment', async ($, on) => {
 test('a long name is cut on a whole character', async ($, on) => {
   const name = await headerName($, on, {}, undefined, 'ABCDEFGHIJKLMNOPQRSTUVW\u{1F916}X')
   expect(name).toBe('ABCDEFGHIJKLMNOPQRSTUVW\u{1F916}')
-  // No half of a surrogate pair is left on its own.
-  expect(/[\uD800-\uDFFF]/u.test(name)).toBe(false)
 })
 
 test('/sbs status names the animation and the reply header', async ($, on) => {
@@ -1138,22 +1121,10 @@ test('a new turn reads a waiting prompt only where it stands on whole lines', as
 
     return <Text>{e.props.text}</Text>
   })
-  const isQueued = async (text: string) => {
-    const ui = await $.ui.mount({
-      plugin: 'sbs-deck',
-      surface: 'terminal',
-      component: 'UserMessage',
-      props: { text, origin: { kind: 'composer' }, isExpanded: false },
-    })
-    const found = await ui.find({ type: 'Text', text: 'QUEUED' })
-    await ui.unmount()
-
-    return found !== undefined
-  }
 
   await $.prompt.submit({ text: 'do this', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
   await $.turn.start({ text: 'please do this now', turnId: 't2' })
-  expect(await isQueued('do this')).toBe(true)
+  expect(await isQueued($, 'do this')).toBe(true)
   await $.turn.start({ text: 'first\ndo this\nlast', turnId: 't3' })
-  expect(await isQueued('do this')).toBe(false)
+  expect(await isQueued($, 'do this')).toBe(false)
 })

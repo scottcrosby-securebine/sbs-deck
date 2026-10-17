@@ -229,11 +229,12 @@ function agentName(value: unknown): string | undefined {
   return name.length > 0 ? name : undefined
 }
 
-// The display name the SBSForge platform gave this agent: `display_name` in the
-// indented block under a top-level `agent:` in ~/.sbsforge/config/agent.yaml,
-// which the platform writes when it provisions a workspace. A quoted value
-// loses its quotes and a plain one its trailing `# comment`. Undefined
-// anywhere that file is absent.
+// The display name the SBSForge platform gave this agent: the `display_name`
+// key directly under a top-level `agent:` in ~/.sbsforge/config/agent.yaml,
+// which the platform writes when it provisions a workspace. Blank and comment
+// lines inside the block are skipped, and a deeper `display_name` belongs to a
+// nested map, not to the agent. A quoted value loses its quotes and a plain
+// one its `# comment`. Undefined anywhere that file is absent.
 async function sbsforgeAgentName($: EngineInterface): Promise<string | undefined> {
   try {
     const home = await $.env.get('HOME')
@@ -243,10 +244,17 @@ async function sbsforgeAgentName($: EngineInterface): Promise<string | undefined
     }
 
     const config = await $.fs.read(`${home}/.sbsforge/config/agent.yaml`)
-    const block = /^agent:[ \t]*\r?\n((?:[ \t]*\r?\n|[ \t]+.*(?:\r?\n|$))*)/m.exec(config)?.[1] ?? ''
-    const value = /^[ \t]+display_name:[ \t]*(.*)$/m.exec(block)?.[1]?.trim() ?? ''
+    const block = /^agent:[ \t]*(?:#.*)?\r?\n((?:[ \t]*(?:#.*)?\r?\n|[ \t]+.*(?:\r?\n|$))*)/m.exec(config)?.[1] ?? ''
+    // The block's own indent: that of its first line that is not blank or a comment.
+    const indent = /^([ \t]+)[^ \t#\r\n]/m.exec(block)?.[1]
 
-    return agentName(/^(["'])(.*?)\1/.exec(value)?.[2] ?? value.replace(/\s+#.*$/, ''))
+    if (indent === undefined) {
+      return undefined
+    }
+
+    const value = new RegExp(`^${indent}display_name:[ \\t]*(.*)$`, 'm').exec(block)?.[1]?.trim() ?? ''
+
+    return agentName(/^(["'])(.*?)\1/.exec(value)?.[2] ?? value.replace(/(?:^|\s+)#.*$/, ''))
   } catch {
     return undefined
   }
@@ -305,6 +313,7 @@ export const register: Register = on => {
   // SBSFORGE_AGENT_NAME its workspace is given), else CLAUDE.
   let givenName: string | undefined
   let launchName: string | undefined
+  const replyName = () => givenName ?? launchName ?? 'CLAUDE'
   let isColoring = true
 
   on('session.start', async ($, e, next) => {
@@ -352,7 +361,7 @@ export const register: Register = on => {
     const [what = '', how = ''] = e.args.trim().toLowerCase().split(/\s+/)
     const status = () =>
       `Styling is ${isEnabled ? 'on' : 'off'}; quiet tool rows are ${isQuiet ? 'on' : 'off'}; output coloring is ${isColoring ? 'on' : 'off'}. ` +
-      `Spinner animation: ${animation}. Reply header: ${givenName ?? launchName ?? 'CLAUDE'}.`
+      `Spinner animation: ${animation}. Reply header: ${replyName()}.`
 
     // On or off as asked; with neither word, the opposite of what it is now.
     const setting = (current: boolean): boolean | undefined =>
@@ -367,7 +376,7 @@ export const register: Register = on => {
 
       if (wanted === '') {
         return {
-          text: `The reply header says ${givenName ?? launchName ?? 'CLAUDE'}. Set it with /sbs name <name>; /sbs name clear goes back to ${launchName ?? 'CLAUDE'}.`,
+          text: `The reply header says ${replyName()}. Set it with /sbs name <name>; /sbs name clear goes back to ${launchName ?? 'CLAUDE'}.`,
         }
       }
 
@@ -381,7 +390,7 @@ export const register: Register = on => {
 
       $.ui.invalidate('ui.render')
 
-      return { text: `The reply header now says ${givenName ?? launchName ?? 'CLAUDE'}.` }
+      return { text: `The reply header now says ${replyName()}.` }
     }
 
     if (what === 'anim' || what === 'ani' || what === 'animation') {
@@ -587,7 +596,7 @@ export const register: Register = on => {
         <Box flexDirection="row">
           <Text color={NEON_CYAN}>{ASSISTANT_ICON} </Text>
           <Text bold color={NEON_CYAN}>
-            {givenName ?? launchName ?? 'CLAUDE'}
+            {replyName()}
           </Text>
           <Text color={INK_DIM}> // DOWNLINK</Text>
         </Box>
