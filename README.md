@@ -119,10 +119,11 @@ accurate to its source, no suggestion that Claude has failed, and short enough
 for the line. The last five passes over the list found nothing to stop it.
 
 The code was reviewed in the same rounds. Every finding raised was fixed and
-given a test. Changes made after the last review pass have not been seen by a
-reviewer: the final two fixes (delivered-message matching and mixed MCP
-results), the slate-blue queue color, the icons, the rename to `sbs-deck`, and
-the 1.0.1 spinner fix (a phrase could stay scrambled for the rest of a turn
-after the spinner had been off screen) and the account name in the label. The
-test suite passes, 28 tests, on
-Claude Code 2.1.289.
+given a test. The changes made after those rounds (delivered-message
+matching, mixed MCP results, the slate-blue queue color, the icons, the rename
+to `sbs-deck`, the 1.0.1 spinner fix, the account name in the label, the
+thirteen added animations and the agent name in the reply header) were audited
+in October 2026 by independent reviewers, one of them a different model
+family. Every blocking finding was fixed, each code fix with a test that
+fails without it, or, by the owner's ruling, is listed under Known limits.
+The test suite passes, 63 tests, on Claude Code 2.1.302.
