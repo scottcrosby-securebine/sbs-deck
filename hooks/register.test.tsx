@@ -1463,3 +1463,129 @@ test('a queued prompt waits as the rest of the chain let it in', async ($, on) =
   await $.prompt.submit({ text: 'dropped ask', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
   expect(await isQueued($, 'dropped ask')).toBe(false)
 })
+
+test('a subagent starting keeps the main turn\'s phrase and its one reply header', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('ui.render', { component: 'AssistantMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.text}</Text>
+  })
+  const drawn = spinnerProbe(on)
+  const hasHeader = async (requestId: string) => {
+    const ui = await $.ui.mount({
+      plugin: 'sbs-deck',
+      surface: 'terminal',
+      component: 'AssistantMessage',
+      requestId,
+      props: { text: 'a reply', isFirstOfReply: true },
+    })
+    const found = await ui.find({ type: 'Text', text: 'CLAUDE' })
+    await ui.unmount()
+
+    return found !== undefined
+  }
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  expect(await hasHeader('m1')).toBe(true)
+  const spinner = await spinnerOn($, 'tool-use')
+  await clock.advance(2_000)
+  const phrase = drawn.word
+  expect(SPINNER_PHRASES['tool-use']).toContain(phrase)
+
+  await $.turn.start({ text: 'look this up', turnId: 's1', agentId: 'agent-1' })
+  await clock.advance(150)
+  expect(drawn.word).toBe(phrase)
+  expect(await hasHeader('m2')).toBe(false)
+  await spinner.unmount()
+})
+
+test('a prompt queued while its row is on screen turns slate at once', async ($, on) => {
+  const clock = mock.clock(on)
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  engineUserMessage(on)
+
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text: 'one more', origin: { kind: 'composer' }, isExpanded: false },
+  })
+  expect(await ui.find({ type: 'Text', text: 'QUEUED' })).toBeUndefined()
+  await $.prompt.submit({ text: 'one more', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await clock.settle()
+  expect(await ui.find({ type: 'Text', text: 'QUEUED' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a prompt read while the rest of the submit chain is still running stays read', async ($, on) => {
+  let release = () => {}
+  const held = new Promise<void>(resolve => {
+    release = resolve
+  })
+  on('prompt.submit', async ($, e) => {
+    await held
+
+    return { text: e.text }
+  })
+  on('prompt.attachment', ($, e) => ({ text: e.text }))
+  engineUserMessage(on)
+
+  const submitted = $.prompt.submit({ text: 'quick one', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.attachment({ type: 'queued_command', text: `${LEAD}quick one${TAIL}`, origin: { kind: 'engine' } })
+  release()
+  await submitted
+  expect(await isQueued($, 'quick one')).toBe(false)
+})
+
+test('spinners for two agents on one surface each resolve and keep their own phrase', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  const words: Record<string, string> = {}
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    words[e.requestId] = e.props.word
+
+    return <Text>spinner</Text>
+  })
+  const spinnerFor = (requestId: string, mode: 'thinking' | 'tool-use') =>
+    $.ui.mount({
+      plugin: 'sbs-deck',
+      surface: 'terminal',
+      component: 'Spinner',
+      requestId,
+      props: { word: 'Baking', message: null, suffix: '…', mode },
+    })
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const first = await spinnerFor('agent-a', 'thinking')
+  await clock.advance(2_000)
+  const settled = words['agent-a']
+  expect(SPINNER_PHRASES.thinking).toContain(settled)
+
+  // A second spinner enters the same state, then another.
+  const second = await spinnerFor('agent-b', 'thinking')
+  const third = await spinnerFor('agent-c', 'tool-use')
+  await clock.advance(2_000)
+  expect(words['agent-a']).toBe(settled)
+  expect(SPINNER_PHRASES.thinking).toContain(words['agent-b'])
+  expect(SPINNER_PHRASES['tool-use']).toContain(words['agent-c'])
+  await first.unmount()
+  await second.unmount()
+  await third.unmount()
+})
+
+test('a name saved by /sbs name is read back when a session starts', async ($, on) => {
+  mock.clock(on)
+  mock.env(on, { USER: 'tester' })
+  const stored: Record<string, unknown> = { agentName: 'Night' }
+  on('store.get', ($, e) => ({ value: stored[e.key] }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(JSON.stringify(await sbsCommand($, 'name'))).toContain('says NIGHT.')
+})

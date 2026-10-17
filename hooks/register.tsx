@@ -308,10 +308,10 @@ export const register: Register = on => {
     'tool-use': firstPick,
     responding: firstPick,
   }
-  // Each surface's spinner state and when its phrase came up: a session drawn
-  // on the terminal and the desktop at once has two spinners, and the desktop
-  // never says tool-input.
-  const phrasesShown = new Map<string, { mode: SpinnerMode; since: number }>()
+  // Each spinner's state, its phrase and when that came up, by surface and
+  // instance: a session can draw several spinners at once (the terminal and the
+  // desktop, or one per agent), and each keeps its own phrase.
+  const phrasesShown = new Map<string, { mode: SpinnerMode; pick: number; since: number }>()
   // Who is shown beside OPERATOR: the account signed in to Claude Code, by its
   // email, read again at every turn so a new sign-in shows at once. The
   // machine's login name stands in where no account can be read.
@@ -471,13 +471,26 @@ export const register: Register = on => {
       $.ui.invalidate('ui.render')
     }
 
+    // A prompt typed while a turn was running carries that turn's id, and waits
+    // from the moment it is submitted: the rest of the chain can take a while,
+    // and the prompt can be read before it returns.
+    const typed = comparable(e.text)
+    const isWaiting = e.turnId !== undefined && (e.origin.kind === 'composer' || e.origin.kind === 'bridge')
+
+    if (isWaiting) {
+      waitingPrompts.add(typed)
+      $.ui.invalidate('ui.render')
+    }
+
     const result = await next(e)
 
-    // A prompt typed while a turn was running carries that turn's id. What
-    // waits is the text that entered, as the rest of the chain left it; one
-    // dropped never entered.
-    if (e.turnId !== undefined && (e.origin.kind === 'composer' || e.origin.kind === 'bridge') && result.drop === undefined) {
-      waitingPrompts.add(comparable(result.text))
+    // One the chain dropped never entered, and one it rewrote waits under its
+    // new text, unless it has been read meanwhile.
+    if (isWaiting && (result.drop !== undefined || comparable(result.text) !== typed) && waitingPrompts.delete(typed)) {
+      if (result.drop === undefined) {
+        waitingPrompts.add(comparable(result.text))
+      }
+
       $.ui.invalidate('ui.render')
     }
 
@@ -502,7 +515,13 @@ export const register: Register = on => {
   })
 
   // Each turn, however it began, gets one reply header and a running ticker.
+  // A subagent's run starts as a turn of its own inside the main turn: it is
+  // the main turn's header, phrase and ticker that stand.
   on('turn.start', ($, e, next) => {
+    if (e.agentId !== undefined) {
+      return next(e)
+    }
+
     for (const prompt of deliveredAmong(waitingPrompts, e.text)) {
       waitingPrompts.delete(prompt)
       $.ui.invalidate('ui.render')
@@ -739,16 +758,17 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const frame = Math.floor(now / TICK_MS)
 
-    let shown = phrasesShown.get(e.surface)
+    const instance = `${e.surface}:${e.requestId}`
+    let shown = phrasesShown.get(instance)
 
     if (shown?.mode !== e.props.mode) {
-      shown = { mode: e.props.mode, since: now }
-      phrasesShown.set(e.surface, shown)
       picks[e.props.mode] += 1
+      shown = { mode: e.props.mode, pick: picks[e.props.mode], since: now }
+      phrasesShown.set(instance, shown)
     }
 
     const age = Math.floor((now - shown.since) / TICK_MS)
-    const phrase = phraseFor(e.props.mode, picks[e.props.mode])
+    const phrase = phraseFor(e.props.mode, shown.pick)
     const draw = ANIMATIONS[animationFor(animation, phrase)] ?? ANIMATIONS.bar
 
     return next({
