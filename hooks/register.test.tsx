@@ -450,7 +450,7 @@ test('a queued prompt that opens the next turn gets a running spinner', async ($
   await $.prompt.submit({ text: 'then this', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
   await $.turn.complete({ answer: 'done', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' })
 
-  // No turn is running: the clock moving draws nothing new.
+  // Between turns.
   await clock.advance(450)
   const idle = await $.ui.mount({
     plugin: 'sbs-deck',
@@ -1599,4 +1599,35 @@ test('a background agent\'s spinner keeps moving after the main turn ends', asyn
   await clock.advance(2_000)
   expect(SPINNER_PHRASES['tool-use']).toContain(words['agent-1'])
   await background.unmount()
+})
+
+test('a shell result that is an image is left to the engine', async ($, on) => {
+  mock.store(on)
+  on('ui.render', { component: 'ToolResult' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>engine drew it</Text>
+  })
+
+  await quietOff($)
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'ToolResult',
+    props: {
+      tool_use_id: 'b1',
+      tool: 'Bash',
+      output: { stdout: 'iVBORw0KGgoAAAANSUhEUgAA', stderr: '', interrupted: false, isImage: true },
+      isErrored: false,
+    },
+  })
+  expect(await ui.find({ type: 'Text', text: 'engine drew it' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a long run of spaces in an agent.yaml name reads quickly', async ($, on) => {
+  const started = Date.now()
+  const name = await headerName($, on, {}, `agent:\n  display_name: Mill${' '.repeat(100_000)}er # note\n`)
+  expect(name.startsWith('MILL')).toBe(true)
+  expect(Date.now() - started).toBeLessThan(1_000)
 })

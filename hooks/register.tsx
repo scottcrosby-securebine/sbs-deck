@@ -55,7 +55,8 @@ function textOfBlocks(blocks: readonly unknown[]): string | undefined {
 
 // A tool result's text, in whichever of the shapes it arrives: a shell
 // result's two streams, a bare string, or a list of text blocks. Undefined
-// for any other shape, which the engine then draws itself.
+// for any other shape, and for a shell result whose output is an image, which
+// the engine then draws itself.
 function textOfOutput(output: unknown): string | undefined {
   if (typeof output === 'string') {
     return output
@@ -71,6 +72,10 @@ function textOfOutput(output: unknown): string | undefined {
 
   if ('content' in output && Array.isArray(output.content)) {
     return textOfBlocks(output.content)
+  }
+
+  if ('isImage' in output && output.isImage === true) {
+    return undefined
   }
 
   const streams = [
@@ -264,7 +269,7 @@ async function sbsforgeAgentName($: EngineInterface): Promise<string | undefined
 
     const value = new RegExp(`^${indent}display_name:[ \\t]*(.*)$`, 'm').exec(block)?.[1]?.trim() ?? ''
 
-    return agentName(/^(["'])(.*?)\1/.exec(value)?.[2] ?? value.replace(/(?:^|\s+)#.*$/, ''))
+    return agentName(/^(["'])(.*?)\1/.exec(value)?.[2] ?? value.replace(/(?:^|\s)#.*$/, ''))
   } catch {
     return undefined
   }
