@@ -28,8 +28,10 @@ const RULES: readonly (readonly [string, Style])[] = [
   ['\\b\\d{4}-\\d{2}-\\d{2}(?:[T ]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?Z?)?\\b|\\b\\d{2}:\\d{2}:\\d{2}\\b', TIME],
   ['\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?:/\\d{1,2})?(?::\\d{1,5})?\\b', ADDRESS],
   ['\\b(?:[0-9A-Fa-f]{1,4}:){2,7}(?::?[0-9A-Fa-f]{1,4}){1,6}(?:/\\d{1,3})?\\b', ADDRESS],
-  ['"(?:[^"\\\\]|\\\\.)*"(?=\\s*:)', KEY],
-  ['"(?:[^"\\\\]|\\\\.)*"', STRING],
+  // A quote right after a backslash never opens a string, so an escaped quote
+  // never starts a scan to the end of the line.
+  ['(?<!\\\\)"[^"\\\\]*(?:\\\\.[^"\\\\]*)*"(?=\\s*:)', KEY],
+  ['(?<!\\\\)"[^"\\\\]*(?:\\\\.[^"\\\\]*)*"', STRING],
   [
     '\\b(?:GigabitEthernet|TenGigabitEthernet|FortyGigabitEthernet|HundredGigE|FastEthernet|Ethernet|Port-channel|Loopback|Tunnel|Vlan|Gi|Te|Fo|Hu|Fa|Eth|Po|Lo|Tu|Vl)\\d+(?:/\\d+)*(?:\\.\\d+)?\\b|\\b(?:ge|xe|et|ae|irb|lo|em|fxp|vme|st)-?\\d+(?:/\\d+)*(?:\\.\\d+)?\\b|\\bethernet\\d+/\\d+(?:\\.\\d+)?\\b',
     INTERFACE,
