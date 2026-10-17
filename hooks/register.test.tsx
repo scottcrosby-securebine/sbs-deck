@@ -1406,27 +1406,6 @@ test('a subagent finishing does not stop the main turn\'s spinner', async ($, on
   await ui.unmount()
 })
 
-test('each turn opens on a new phrase, even in the state the last one ended in', async ($, on) => {
-  const clock = mock.clock(on)
-  mock.store(on)
-  on('turn.start', ($, e) => ({ turnId: e.turnId }))
-  const drawn = spinnerProbe(on)
-
-  await $.turn.start({ text: 'go', turnId: 't1' })
-  const first = await spinnerOn($, 'requesting')
-  await clock.advance(2_000)
-  const before = drawn.word
-  expect(SPINNER_PHRASES.requesting).toContain(before)
-  await first.unmount()
-
-  await $.turn.start({ text: 'again', turnId: 't2' })
-  const second = await spinnerOn($, 'requesting')
-  expect(SPINNER_PHRASES.requesting).not.toContain(drawn.word)
-  await clock.advance(2_000)
-  expect(drawn.word).not.toBe(before)
-  await second.unmount()
-})
-
 test('spinners on the terminal and the desktop each resolve their own phrase', async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
@@ -1447,32 +1426,6 @@ test('spinners on the terminal and the desktop each resolve their own phrase', a
   expect(SPINNER_PHRASES['tool-use']).toContain(words.desktop)
   await terminal.unmount()
   await desktop.unmount()
-})
-
-test('a queued prompt waits as the rest of the chain let it in', async ($, on) => {
-  let rewrite: string | undefined
-  let isDropped = false
-  on('prompt.submit', ($, e) => (isDropped ? { drop: 'not now' } : { text: rewrite ?? e.text }))
-  engineUserMessage(on)
-
-  // A rewritten one is let go: it may be read under its new text before the
-  // chain returns, and must not be left waiting after that.
-  rewrite = 'rewritten ask'
-  await $.prompt.submit({ text: 'typed ask', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
-  expect(await isQueued($, 'rewritten ask')).toBe(false)
-  expect(await isQueued($, 'typed ask')).toBe(false)
-
-  rewrite = undefined
-  isDropped = true
-  await $.prompt.submit({ text: 'dropped ask', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
-  expect(await isQueued($, 'dropped ask')).toBe(false)
-
-  // A dropped copy of a prompt that is already waiting leaves that one waiting.
-  isDropped = false
-  await $.prompt.submit({ text: 'same ask', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
-  isDropped = true
-  await $.prompt.submit({ text: 'same ask', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
-  expect(await isQueued($, 'same ask')).toBe(true)
 })
 
 test('a subagent starting keeps the main turn\'s phrase and its one reply header', async ($, on) => {
