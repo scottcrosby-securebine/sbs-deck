@@ -244,7 +244,16 @@ async function sbsforgeAgentName($: EngineInterface): Promise<string | undefined
     }
 
     const config = await $.fs.read(`${home}/.sbsforge/config/agent.yaml`)
-    const block = /^agent:[ \t]*(?:#.*)?\r?\n((?:[ \t]*(?:#.*)?\r?\n|[ \t]+.*(?:\r?\n|$))*)/m.exec(config)?.[1] ?? ''
+    const head = /^agent:[ \t]*(?:#.*)?$/m.exec(config)
+
+    if (head === null) {
+      return undefined
+    }
+
+    // The block runs to the next line that starts at column 0 with a key.
+    const rest = config.slice(head.index + head[0].length)
+    const end = rest.search(/\n[^ \t#\r\n]/)
+    const block = end === -1 ? rest : rest.slice(0, end)
     // The block's own indent: that of its first line that is not blank or a comment.
     const indent = /^([ \t]+)[^ \t#\r\n]/m.exec(block)?.[1]
 

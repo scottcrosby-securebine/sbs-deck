@@ -925,8 +925,9 @@ async function isQueued($: Engine, text: string): Promise<boolean> {
 
 test('a queued prompt that quotes the engine framing is read whole, and only when the model gets it', async ($, on) => {
   let dropAttachments = false
+  let rewriteTo: string | undefined
   on('prompt.submit', ($, e) => ({ text: e.text }))
-  on('prompt.attachment', ($, e) => ({ text: dropAttachments ? null : e.text }))
+  on('prompt.attachment', ($, e) => ({ text: dropAttachments ? null : (rewriteTo ?? e.text) }))
   on('ui.render', { component: 'UserMessage' }, ($, e) => {
     const { Text } = $.ui.resolve(e)
 
@@ -950,6 +951,14 @@ test('a queued prompt that quotes the engine framing is read whole, and only whe
   dropAttachments = false
   await $.prompt.attachment({ type: 'queued_command', text: `${lead}held back${TAIL}`, origin: { kind: 'engine' } })
   expect(await isQueued($, 'held back')).toBe(false)
+
+  // One the chain rewrites delivers what it was rewritten to.
+  rewriteTo = `${lead}replacement${TAIL}`
+  await $.prompt.submit({ text: 'original', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.submit({ text: 'replacement', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.attachment({ type: 'queued_command', text: `${lead}original${TAIL}`, origin: { kind: 'engine' } })
+  expect(await isQueued($, 'original')).toBe(true)
+  expect(await isQueued($, 'replacement')).toBe(false)
 })
 
 test('with no home directory nothing is read from the working directory', async ($, on) => {
@@ -1077,6 +1086,10 @@ test('agent.yaml is read under agent:, without its quotes or a trailing comment'
 test('agent.yaml skips comment lines and nested maps in the agent block', async ($, on) => {
   const yaml = 'agent: # this agent\n# who it is\n  channel:\n    display_name: The Channel\n  display_name: Miller\n'
   expect(await headerName($, on, {}, yaml)).toBe('MILLER')
+})
+
+test('a long agent.yaml still gives the name', async ($, on) => {
+  expect(await headerName($, on, {}, `agent:\n  display_name: Miller\n${'  # note\n'.repeat(600_000)}`)).toBe('MILLER')
 })
 
 test('an agent.yaml name that is only a comment is no name', async ($, on) => {
