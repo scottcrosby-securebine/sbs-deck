@@ -24,8 +24,9 @@ meaning suggests, so you can tell at a glance what Claude is doing.
 
 - Claude Code 2.1.287 or later. Mods are an early-access feature and may change
   between releases.
-- A terminal font with Nerd Font icons, for the shield and robot. Without one
-  they show as empty boxes; everything else works.
+- A terminal font with Nerd Font icons (Nerd Fonts 3.0 or later, where the
+  robot icon lives), for the shield and robot. Without one they show as empty
+  boxes; everything else works.
 - `jq`, for the install script.
 
 ## Install
@@ -96,7 +97,9 @@ claude plugin test .
 - With quiet rows off and coloring on, a long shell result shows its first 20
   lines and a count of the rest.
 - A queued message is recognised by its text. Send the same text twice, once
-  queued and once not, and both show as queued until one is read.
+  queued and once not, and both show as queued until one is read. A queued
+  message you take back out of the queue leaves any row with the same text
+  slate-blue until that text is sent again.
 - What the mod remembers about queued messages and spinner position is
   forgotten if the mod reloads mid-session.
 - Recognising a delivered message relies on the wording Claude Code wraps

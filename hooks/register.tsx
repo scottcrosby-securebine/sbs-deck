@@ -296,8 +296,7 @@ export const register: Register = on => {
   let animation = AUTO
   // The running ticker, how far it has counted, and the count the spinner last
   // drew at; then how many phrases each state has drawn from its pool, started
-  // at a random place so sessions differ, and the clock time the current one
-  // came up.
+  // at a random place so sessions differ.
   let ticker: Timer | undefined
   let ticks = 0
   let drawnAt = 0
@@ -309,8 +308,10 @@ export const register: Register = on => {
     'tool-use': firstPick,
     responding: firstPick,
   }
-  let spinnerMode: SpinnerMode | undefined
-  let phraseSince = 0
+  // Each surface's spinner state and when its phrase came up: a session drawn
+  // on the terminal and the desktop at once has two spinners, and the desktop
+  // never says tool-input.
+  const phrasesShown = new Map<string, { mode: SpinnerMode; since: number }>()
   // Who is shown beside OPERATOR: the account signed in to Claude Code, by its
   // email, read again at every turn so a new sign-in shows at once. The
   // machine's login name stands in where no account can be read.
@@ -470,12 +471,17 @@ export const register: Register = on => {
       $.ui.invalidate('ui.render')
     }
 
-    // A prompt typed while a turn was running carries that turn's id.
-    if (e.turnId !== undefined && (e.origin.kind === 'composer' || e.origin.kind === 'bridge')) {
-      waitingPrompts.add(comparable(e.text))
+    const result = await next(e)
+
+    // A prompt typed while a turn was running carries that turn's id. What
+    // waits is the text that entered, as the rest of the chain left it; one
+    // dropped never entered.
+    if (e.turnId !== undefined && (e.origin.kind === 'composer' || e.origin.kind === 'bridge') && result.drop === undefined) {
+      waitingPrompts.add(comparable(result.text))
+      $.ui.invalidate('ui.render')
     }
 
-    return next(e)
+    return result
   })
 
   // A waiting prompt is read when the engine injects it into the running turn
@@ -513,6 +519,8 @@ export const register: Register = on => {
 
     earlierReplies = new Set(drawnReplies)
     isAwaitingOpener = true
+    // A new turn opens on a new phrase, whatever state the last one ended in.
+    phrasesShown.clear()
     drawnAt = ticks
     ticker?.cancel()
     ticker = $.clock.every(TICK_MS, () => {
@@ -532,6 +540,12 @@ export const register: Register = on => {
   })
 
   on('turn.complete', async ($, e, next) => {
+    // A subagent's run completes as a turn of its own, inside the main turn,
+    // which is still running.
+    if (e.agentId !== undefined) {
+      return next(e)
+    }
+
     ticker?.cancel()
     ticker = undefined
 
@@ -725,13 +739,15 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const frame = Math.floor(now / TICK_MS)
 
-    if (e.props.mode !== spinnerMode) {
-      spinnerMode = e.props.mode
-      phraseSince = now
+    let shown = phrasesShown.get(e.surface)
+
+    if (shown?.mode !== e.props.mode) {
+      shown = { mode: e.props.mode, since: now }
+      phrasesShown.set(e.surface, shown)
       picks[e.props.mode] += 1
     }
 
-    const age = Math.floor((now - phraseSince) / TICK_MS)
+    const age = Math.floor((now - shown.since) / TICK_MS)
     const phrase = phraseFor(e.props.mode, picks[e.props.mode])
     const draw = ANIMATIONS[animationFor(animation, phrase)] ?? ANIMATIONS.bar
 
