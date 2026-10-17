@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, TestBody } from 'claude-code/testing'
 
+import { colorLine } from './color'
 import { ANIMATIONS, AUTO, SPINNER_PHRASES, animationFor, decrypt, phraseFor, scanBar } from './spinner'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -1630,4 +1631,18 @@ test('a long run of spaces in an agent.yaml name reads quickly', async ($, on) =
   const name = await headerName($, on, {}, `agent:\n  display_name: Mill${' '.repeat(100_000)}er # note\n`)
   expect(name.startsWith('MILL')).toBe(true)
   expect(Date.now() - started).toBeLessThan(1_000)
+})
+
+test('a line of escaped quotes colors quickly, and quoted strings still color', () => {
+  const pairs = Object.fromEntries(Array.from({ length: 5_000 }, (_, index) => [`key${index}`, `value ${index}`]))
+  // Double-encoded JSON: every inner quote is escaped and the line has no closing quote.
+  // Kept under 150,000 characters: above that, Bun runs the old quadratic rules fast too.
+  const line = JSON.stringify(JSON.stringify(pairs)).slice(0, 100_000)
+  const started = Date.now()
+  colorLine(line)
+  expect(Date.now() - started).toBeLessThan(250)
+
+  const colorOf = (text: string, token: string) => colorLine(text).find(segment => segment.text === token)?.style?.color
+  expect(colorOf('{"name": "a \\"b\\" c"}', '"name"')).toBe('#FF2E97')
+  expect(colorOf('{"name": "a \\"b\\" c"}', '"a \\"b\\" c"')).toBe('#9FD6A8')
 })

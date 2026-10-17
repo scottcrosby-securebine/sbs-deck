@@ -126,4 +126,4 @@ thirteen added animations and the agent name in the reply header) were audited
 in October 2026 by independent reviewers, one of them a different model
 family. Every blocking finding was fixed, each code fix with a test that
 fails without it, or, by the owner's ruling, is listed under Known limits.
-The test suite passes, 63 tests, on Claude Code 2.1.302.
+The test suite passes, 64 tests, on Claude Code 2.1.302.
