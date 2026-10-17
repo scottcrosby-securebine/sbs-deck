@@ -1636,7 +1636,7 @@ test('a long run of spaces in an agent.yaml name reads quickly', async ($, on) =
 test('a line of escaped quotes colors quickly, and quoted strings still color', () => {
   const pairs = Object.fromEntries(Array.from({ length: 5_000 }, (_, index) => [`key${index}`, `value ${index}`]))
   // Double-encoded JSON: every inner quote is escaped and the line has no closing quote.
-  // Kept under 150,000 characters: above that, Bun runs the old quadratic rules fast too.
+  // Kept at 100,000 characters: on much longer lines Bun can run the old rules fast too.
   const line = JSON.stringify(JSON.stringify(pairs)).slice(0, 100_000)
   const started = Date.now()
   colorLine(line)
