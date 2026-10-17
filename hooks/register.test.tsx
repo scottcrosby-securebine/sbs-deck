@@ -1533,10 +1533,15 @@ test('a prompt queued while its row is on screen turns slate at once', async ($,
 
 test('a prompt read while the rest of the submit chain is still running stays read', async ($, on) => {
   let release = () => {}
+  let entered = () => {}
   const held = new Promise<void>(resolve => {
     release = resolve
   })
+  const hasEntered = new Promise<void>(resolve => {
+    entered = resolve
+  })
   on('prompt.submit', async ($, e) => {
+    entered()
     await held
 
     return { text: e.text }
@@ -1545,6 +1550,8 @@ test('a prompt read while the rest of the submit chain is still running stays re
   engineUserMessage(on)
 
   const submitted = $.prompt.submit({ text: 'quick one', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  // Read once the prompt has passed the mod and the rest of the chain holds it.
+  await hasEntered
   await $.prompt.attachment({ type: 'queued_command', text: `${LEAD}quick one${TAIL}`, origin: { kind: 'engine' } })
   release()
   await submitted
@@ -1599,4 +1606,44 @@ test('a name saved by /sbs name is read back when a session starts', async ($, o
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   expect(JSON.stringify(await sbsCommand($, 'name'))).toContain('says NIGHT.')
+})
+
+test('a prompt taken back and sent again turns gold once it is read', async ($, on) => {
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('prompt.attachment', ($, e) => ({ text: e.text }))
+  engineUserMessage(on)
+
+  // Queued, then taken back out of the queue: no event says so.
+  await $.prompt.submit({ text: 'again', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.submit({ text: 'again', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+  await $.prompt.attachment({ type: 'queued_command', text: `${LEAD}again${TAIL}`, origin: { kind: 'engine' } })
+  expect(await isQueued($, 'again')).toBe(false)
+})
+
+test('a background agent\'s spinner keeps moving after the main turn ends', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+  const words: Record<string, string> = {}
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    words[e.requestId] = e.props.word
+
+    return <Text>spinner</Text>
+  })
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const background = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'Spinner',
+    requestId: 'agent-1',
+    props: { word: 'Baking', message: null, suffix: '…', mode: 'tool-use' },
+  })
+  await $.turn.complete({ answer: 'started it', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' })
+  expect(SPINNER_PHRASES['tool-use']).not.toContain(words['agent-1'])
+  await clock.advance(2_000)
+  expect(SPINNER_PHRASES['tool-use']).toContain(words['agent-1'])
+  await background.unmount()
 })

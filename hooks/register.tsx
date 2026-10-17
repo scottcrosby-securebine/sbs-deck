@@ -27,8 +27,9 @@ const TICK_MS = 150
 const MAX_SAVED_OPENERS = 400
 // How many drawn reply ids are remembered within a session.
 const MAX_TRACKED_REPLIES = 4000
-// A ticker nobody has drawn from for this many ticks stops itself: a turn that
-// ended without `turn.complete` must not leave it running.
+// A ticker nobody has drawn from for this many ticks stops itself. That is how
+// it stops at all: a background agent's spinner can outlive the turn that
+// started it, so the end of a turn does not stop the ticker.
 const IDLE_TICKS = 40
 
 // How many lines of a result are drawn colored before the rest is counted.
@@ -177,8 +178,9 @@ function queuePrompt(waiting: Map<string, number>, prompt: string): void {
   waiting.set(prompt, (waiting.get(prompt) ?? 0) + 1)
 }
 
-// One prompt with this text no longer waits. False when none did.
-function unqueuePrompt(waiting: Map<string, number>, prompt: string): boolean {
+// One prompt with this text no longer waits: one the chain dropped or rewrote
+// at submit. A prompt that is read clears its text whole, as the rows do.
+function unqueuePrompt(waiting: Map<string, number>, prompt: string): void {
   const count = waiting.get(prompt) ?? 0
 
   if (count > 1) {
@@ -186,8 +188,6 @@ function unqueuePrompt(waiting: Map<string, number>, prompt: string): boolean {
   } else {
     waiting.delete(prompt)
   }
-
-  return count > 0
 }
 
 // The email of the account signed in to Claude Code, from the same record the
@@ -523,7 +523,7 @@ export const register: Register = on => {
 
     if (e.type === 'queued_command' && typeof result.text === 'string') {
       for (const prompt of deliveredByAttachment(waitingPrompts, result.text)) {
-        unqueuePrompt(waitingPrompts, prompt)
+        waitingPrompts.delete(prompt)
         $.ui.invalidate('ui.render')
       }
     }
@@ -540,7 +540,7 @@ export const register: Register = on => {
     }
 
     for (const prompt of deliveredAmong(waitingPrompts, e.text)) {
-      unqueuePrompt(waitingPrompts, prompt)
+      waitingPrompts.delete(prompt)
       $.ui.invalidate('ui.render')
     }
 
@@ -576,14 +576,11 @@ export const register: Register = on => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    // A subagent's run completes as a turn of its own, inside the main turn,
-    // which is still running.
+    // A subagent's run completes as a turn of its own: the reply headers are
+    // the main turn's, saved when it completes.
     if (e.agentId !== undefined) {
       return next(e)
     }
-
-    ticker?.cancel()
-    ticker = undefined
 
     const kept = [...turnOpeners].slice(-MAX_SAVED_OPENERS)
 
