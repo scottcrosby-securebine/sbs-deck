@@ -5,20 +5,21 @@ import { noise } from '../canvas'
 // fetches.
 //
 // Deep space, a starfield streaming past in three layers. The saucer drops
-// out of warp at one edge trailing an aqua streak and brakes into the center:
+// out of warp at one edge, a dim aqua warp streak ahead of it collapsing
+// back into its rim, and brakes into the center:
 // a yellow-lit dome, an aqua hull, an aqua rim of yellow running lights with
 // one dark light running round them, a dark red underside with a red reactor
 // core. JUPITER 2 ON COURSE: at the center the engines flare, the core blazes
 // yellow, a yellow, red and dark red plume roars out behind the rim and the
-// near stars stretch into streaks. It holds the center, then pulls away and
-// is gone.
+// near stars stretch into streaks, two of them blazing aqua. It holds the
+// center, then pulls away and is gone.
 //
 // A red planet surface with dark craters wipes in behind it, and the Robot
 // appears on it from the middle out: a glass bubble head with brain lights
 // flickering yellow and red, broad aqua shoulders, a chest of chasing lights,
-// dark aqua treads. His yellow accordion arms unfold and he flails them,
-// each swinging between hanging down and overhead, aqua claws at the tips.
-// The planet wipes away into the stars.
+// aqua treads. His yellow accordion arms unfold and he flails them, each
+// swinging between hanging down and overhead, aqua claws at the tips. The
+// planet closes in from both edges into the stars, the Robot last.
 //
 // The seed picks the stars (place, ink, the near and mid layers' rows),
 // which way the saucer flies, how far it drifts while it holds and how hard
@@ -31,9 +32,8 @@ const BOOST = 26 // the saucer pulls away
 const SCENE = 30 // the planet wipes in behind it, 4 columns a frame
 const ROBOT = 36 // the Robot appears from the middle out, a column each side a frame
 const ARMS = 39 // his arms appear, hanging, before he starts to wave
-const CLEAR = 58 // the planet wipes out, 6 columns a frame
+const CLEAR = 60 // the planet wipes out from both edges in, 4 columns a side a frame
 const WIPE = 4
-const OUT = 6
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 
@@ -69,11 +69,12 @@ function draw(c: Canvas, t: number, seed: number) {
   }
   const mirror = (x: number) => (d > 0 ? x : 31 - x)
 
-  // The planet scene covers a column once the wipe-in front has passed it and
-  // the wipe-out front has not; both come in from the side the saucer entered.
+  // The planet scene covers a column once the wipe-in front, from the side
+  // the saucer entered, has passed it, until the wipe-out closes in on it
+  // from both edges (the middle goes last, so the 16-column crop keeps it).
   const covered = (col: number) => {
     const from = d > 0 ? col : 31 - col
-    return from < (t - SCENE + 1) * WIPE && from >= (t - CLEAR + 1) * OUT
+    return from < (t - SCENE + 1) * WIPE && Math.min(col, 31 - col) >= (t - CLEAR + 1) * WIPE
   }
 
   // The saucer.
@@ -84,14 +85,15 @@ function draw(c: Canvas, t: number, seed: number) {
   const sky = (x: number, y: number, ink: Ink) => { if (t < ROBOT || Math.round(x) < 8 || Math.round(x) > 23) px(x, y, ink) }
   const flaring = t >= FLARE
   if (X > -30 && X < 62) {
-    // Behind the rim: the warp streak while it brakes in, a glow while it
-    // holds, then the plume.
-    if (t < 6) {
-      const len = Math.round(2 * 18.5 * 1.2 / FLARE * (1 - t / FLARE) ** 0.2) + 2
-      for (let k = 1; k <= len; k++) {
-        sky(X - d * (7 + k), 2, k <= len / 3 ? 'cool' : c.mix('cool', 'base', k <= (2 * len) / 3 ? 0.5 : 0.75))
-      }
-    } else if (flaring) {
+    // Ahead of the rim for frames 0 to 2: the warp streak it drops out of,
+    // collapsing back into it, dim aqua fading out (dim, so no cell flashes
+    // as it gives way to the rim). Behind the
+    // rim: a red glow while it brakes in, then the plume.
+    const ahead = 24 - 8 * t
+    for (let k = 1; k <= ahead; k++) {
+      sky(X + d * (7 + k), 2, c.mix('cool', 'base', k <= (3 * ahead) / 4 ? 0.5 : 0.75))
+    }
+    if (flaring) {
       // It dims away from the rim in both rows, so no cell brightens as it
       // trails past.
       const len = Math.min(12, 6 + 2 * (t - FLARE))
@@ -126,7 +128,7 @@ function draw(c: Canvas, t: number, seed: number) {
 
   // The Robot, at columns 13 to 18, until the planet wipes out under him: a
   // glass bubble head with brain lights flickering yellow and red, broad aqua
-  // shoulders, a chest of chasing lights, dark aqua treads.
+  // shoulders, a chest of chasing lights, aqua treads.
   const brain = Math.floor(t / 3) % 2
   const chest: Ink[] = ['hot', 'spark', 'cool']
   for (let col = 13; col <= 18; col++) {
@@ -135,7 +137,7 @@ function draw(c: Canvas, t: number, seed: number) {
     if (inner) px(col, 0, col === 14 || col === 17 ? c.mix('cool', 'base', 0.5) : (col - 15 === brain ? 'spark' : 'hot'))
     px(col, 1, 'cool')
     if (inner) px(col, 2, chest[(col + ((t + 2) >> 2)) % 3]!)
-    px(col, 3, c.mix('cool', 'base', 0.5))
+    px(col, 3, 'cool')
   }
 
   // His yellow accordion arms flail from the shoulders, each swinging
@@ -169,19 +171,21 @@ function draw(c: Canvas, t: number, seed: number) {
   const warp = clamp(t - FLARE, 0, 14)
   const travel = t + 2 * warp
   const streak = t >= FLARE && t < FLARE + 14 ? Math.min(1, (t - FLARE + 1) / 3) : 0
-  // Bright stars drift in the far layer, spread out along it and never
-  // faster; the nearer layers are dim and streak, so no cell flashes as they
-  // stream through.
+  // Bright stars drift in the far layer, in the top row, spread out along it
+  // and never faster; the nearer layers are dim and streak, so no cell flashes as they
+  // stream through. During the warp two near stars blaze as long aqua
+  // streaks, one high and one low, half a wrap apart.
   for (let i = 0; i < 19; i++) {
     const layer = i < 5 ? 0 : i < 13 ? 1 : 2
     const v = [0.5, 1, 2][layer]!
-    const y = Math.floor(noise(seed, 10, i) * 8)
-    const x0 = layer ? noise(seed, 12, i) * 64 : i * 13 + noise(seed, 12, i) * 5
+    const y = i === 13 ? 1 + Math.floor(noise(seed, 10, i) * 2) : i === 14 ? 5 + Math.floor(noise(seed, 10, i) * 2) : Math.floor(noise(seed, 10, i) * (layer ? 8 : 4))
+    const x0 = i === 14 ? noise(seed, 12, 13) * 64 + 32 : layer ? noise(seed, 12, i) * 64 : i * 13 + noise(seed, 12, i) * 5
     const x = (((x0 - d * v * (layer ? travel : t)) % 64) + 64) % 64
     const bright = noise(seed, 13, i) < 0.5
-    const ink: Ink = layer === 0 ? (bright ? 'spark' : 'cool') : c.mix(bright ? 'spark' : 'cool', 'base', 0.5)
-    const tail = layer ? Math.round(v * 3 * streak) + layer - 1 : 0
-    for (let k = 0; k <= tail; k++) dot(x + d * k, y, k ? c.mix('cool', 'base', 0.5) : ink, k ? 1 : layer ? 2 : 3)
+    const bold = streak > 0 && i >= 13 && i < 13 + 2
+    const ink: Ink = bold ? (bright ? 'spark' : 'cool') : layer === 0 ? (bright ? 'spark' : 'cool') : c.mix(bright ? 'spark' : 'cool', 'base', 0.5)
+    const tail = bold ? Math.round(v * 6 * streak) + 1 : layer ? Math.round(v * 3 * streak) + layer - 1 : 0
+    for (let k = 0; k <= tail; k++) dot(x + d * k, y, k ? (bold && k <= tail / 2 ? 'cool' : c.mix('cool', 'base', 0.5)) : ink, k ? 1 : layer ? 2 : 3)
   }
 }
 
@@ -194,5 +198,5 @@ export default {
   variants: {
     course: { loop: LOOP, beats: [{ at: FLARE, phrase: 'JUPITER 2 ON COURSE' }] },
   },
-  draw: (c, frame, seed) => draw(c, frame, seed),
+  draw,
 } satisfies Reel
