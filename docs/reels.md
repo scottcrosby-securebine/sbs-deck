@@ -10,7 +10,7 @@ The working line has three forms, set by the terminal:
 |---|---|
 | 80 columns or more | Two rows: the reel at 32 cells, then the phrase and the readout |
 | 60 to 79 columns | Two rows, with the reel at 16 cells |
-| Under 60 columns, width unknown, under 12 rows, the desktop app, or `/sbs anim off` | One row, no reel |
+| Under 60 columns, width unknown, under 12 rows, the desktop app, VS Code, or `/sbs anim off` | One row, no reel |
 
 With no reel there is no catchphrase either. Both themes draw the line on a black plate, and the reels use the theme's own five colors (slots, below).
 
@@ -41,13 +41,13 @@ The pools come from each reel's `contexts` list, so a new reel joins a pool by n
 - A spinner draws from the bag when it first appears and each time its reel finishes a loop. Each loop takes a fresh random seed, so no two loops are alike.
 - When the context changes, the playing reel finishes its current phase (or its loop, if that ends first) and then picks again. A second change during that wait does not move the end. If the new context's pool holds the playing reel, the reel plays on instead.
 - About 1 turn in 50, the main spinner's first pick of a turn plays the rare reel, the Eye of Sauron, for one whole loop and then returns to the bag.
-- A reel with several variants rotates through them, one per play, for the whole session.
+- A reel with several variants rotates through them, one per play, for the whole session. A new session and `/clear` start the rotation again.
 
 ## Seeds
 
 Every loop takes a new random seed (a 31-bit integer), which the reel uses to vary its frames. The `noise` function in `hooks/canvas.ts` turns numbers into a repeatable value between 0 and 1, so `noise(seed, frame)` is the same on every call with the same inputs. Use it for anything that should differ from loop to loop. Never use `Math.random` or the clock in `draw`.
 
-The flash rule is a safety rule, and a rule that only passes for seeds 1 to 3 would not protect anyone, because real seeds are random. So the shared test runs every indexed reel twice: once on seeds 1 to 3 in full, and once on the same checks shifted by each of 12 seed offsets (see `SEED_OFFSETS` in `hooks/reels.test.tsx`). A failure from the second run has a leading number:
+The flash rule is a safety rule, and a rule that only passes for seeds 1 to 3 would not protect anyone, because real seeds are random. So the shared test runs every indexed reel twice: once on seeds 1 to 3 in full, and once on the same checks shifted by each of 12 seed offsets (see `SEED_OFFSETS` in `hooks/reels.test.tsx`). The second run skips the `seed` rule, since shifted seeds 1 and 2 are just two more seeds. A failure from the second run has a leading number:
 
 ```
 the <name> reel meets the reel rules on many seeds
@@ -90,10 +90,10 @@ export default mine
 |---|---|
 | `name` | Lower case letters and digits, starting with a letter, the same as the file name. Never `auto`, `off`, `list` or `next`. Unique across all reels |
 | `title`, `source` | A display name, and the work the reel comes from |
-| `contexts` | Where the picker may choose it: a context, or `context:variant` to play one variant there. Empty means it plays only when pinned |
+| `contexts` | Where the picker may choose it: a context, or `context:variant` to play one variant there. Empty means it plays only in the `other` pool and when pinned |
 | `rare` | `true` puts it in the rare pool instead of the context pools |
 | `variants` | At least one. Each has a `loop` (frames, 8 to the second) and `beats` |
-| `compact` | Optional. `true` draws on a 16-cell canvas. Without it the reel draws on 32 cells and the 16-cell form shows columns 8 to 23 |
+| `compact` | Optional. `true` draws the 16-cell form on a 16-cell canvas of its own, and the full form on 32 cells as usual. Without it the reel draws on 32 cells and the 16-cell form shows columns 8 to 23 |
 | `draw` | Draws one frame. It must not touch anything outside its arguments |
 
 `frame` counts from 0 each time the reel starts on a spinner, never from the clock, so every play opens at its beginning. `variant` is the variant name for this play.
@@ -106,7 +106,7 @@ A catchphrase is 1 to 28 printable ASCII characters, appears nowhere else in the
 
 ### Canvas calls
 
-The canvas is 2 rows of `canvas.cols` cells (32, or 16 for a `compact` reel). Each cell can hold a background, two half-block pixels, up to eight braille dots and one glyph. The top layer wins: background, then pixels, then dots, then glyph. Coordinates are rounded to the nearest whole number, and a call outside the canvas does nothing.
+The canvas is 2 rows of `canvas.cols` cells: 32, or 16 when a `compact` reel draws its 16-cell form. Each cell can hold a background, two half-block pixels, up to eight braille dots and one glyph. The top layer wins: background, then pixels, then dots, then glyph. Coordinates are rounded to the nearest whole number, and a call outside the canvas does nothing.
 
 | Call | Sets | Coordinates |
 |---|---|---|
@@ -153,7 +153,7 @@ The shared test checks each indexed reel on seeds 1 to 3, on both forms and in b
 | `color` | Across each phase, at least 4 of the 5 slots appear, base included | The phase named shows too few slots. Add the missing color to that stretch of frames |
 | `coverage` | Averaged over each phase, at least 30% of the 64 cells have a background or a block pixel in a slot other than base | The phase named is too empty. The line gives the percentage it measured |
 | `beats` | `loop` is a positive whole number. Beat frames are whole, increasing and not negative. The first beat is at frame 15 or earlier. Beats are at least 12 frames apart. The last beat is at least 12 frames before the loop's end. The loop is at least 36 frames per beat | The line names the number that breaks the rule, for example a beat 10 frames after the one before it |
-| `flash` | No cell has 5 or more opposing brightness changes in any 8 frames (a change counts at 0.10 or more, with the darker side under 0.80). At most one frame per loop where more than 16 of the 64 cells (more than 8 of 32 in the 16-cell form) each rise in brightness by 0.10 or more | Either `5 or more counted changes in 8 frames` with the cell at `column,row`, or `frames ... each have more than N cells rising by 0.10 or more`. `(after variant A seed S)` marks a junction: it appeared where variant A on seed S gave way to this variant. Every ordered pair of variants is tried, a variant followed by itself included, because the variant order is shared by every spinner and can skip one |
+| `flash` | No cell has 5 or more opposing brightness changes in any 8 frames (a change counts at 0.10 or more, with the darker side under 0.80). At most one frame per loop where more than 16 of the 64 cells (more than 8 of 32 in the 16-cell form) each rise in brightness by 0.10 or more. Measured in both themes, each in truecolor and as a 256-color terminal draws it (each color rounded to the cube, as Claude Code does under tmux) | Either `5 or more counted changes in 8 frames` with the cell at `column,row`, or `frames ... each have more than N cells rising by 0.10 or more`. A finding measured at 256 colors reads `theme <name> at 256 colors`. `(after variant A seed S)` marks a junction: it appeared where variant A on seed S gave way to this variant. Every ordered pair of variants is tried, a variant followed by itself included, because the variant order is shared by every spinner and can skip one |
 | `phrases` | Each catchphrase is 1 to 28 printable ASCII characters and appears once in the whole library | The catchphrase named is too long, has a character outside printable ASCII, or repeats another reel's |
 | `seed` | Seeds 1 and 2 must draw different frames | The reel ignores its seed. Feed `seed` through `noise` into something visible |
 
@@ -177,7 +177,7 @@ Do this in the git clone that the README installs at `~/.claude/mods/sbs-deck`. 
    ```
    The mod only loads files that `index.ts` names. If you forget the line, a toast at session start names it and `/sbs anim list` prints the exact line for every reel file left out.
 3. Draw it, and run `claude plugin test .` until it passes. The test checks only reels named in the index, so a reel without its line is never tested. The whole suite takes about a minute.
-4. Reload. Claude Code watches the folder, so a running session picks the change up. Pin the reel with `/sbs anim <name>` and watch it at 80 columns or wider. Then try 70 columns for the 16-cell form.
+4. Reload. Claude Code watches the folder, so a running session picks the change up once the main loop is idle, not while a turn runs. Pin the reel with `/sbs anim <name>` and watch it at 80 columns or wider. Then try 70 columns for the 16-cell form.
 5. Run the other checks from the README before you commit.
 
 A file whose name starts with `_` is tested but never loaded. That is why `_template.ts` can sit in the folder: only `hooks/reels.test.tsx` imports it.

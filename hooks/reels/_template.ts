@@ -13,7 +13,8 @@ const template: Reel = {
   title: 'Template',
   source: 'sbs-deck',
   // Where the picker may choose it: a context, or context:variant. Empty means
-  // it plays only when pinned with /sbs anim <name>. Never `other`.
+  // it plays only in the `other` pool and when pinned with /sbs anim <name>.
+  // Never `other`: every reel that is not rare is in that pool already.
   contexts: [],
   // true puts it in the rare pool instead (about 1 turn in 50).
   rare: false,

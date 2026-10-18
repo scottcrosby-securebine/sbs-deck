@@ -12,7 +12,7 @@ for (const reel of ALL_REELS) {
   })
 }
 
-// Runtime seeds are random 31-bit values, so check shifted seeds: five that once failed a reel, then k * 0x9E3779B1 % 2 ** 31 for k = 1..7.
+// Runtime seeds are random 31-bit values, so check shifted seeds: five small offsets, then k * 0x9E3779B1 % 2 ** 31 for k = 1..7.
 const SEED_OFFSETS = [3, 114, 447, 459, 561, 506952113, 1013904226, 1520856339, 2027808452, 387276917, 894229030, 1401181143]
 
 for (const reel of NEW_REELS) {
@@ -50,7 +50,8 @@ test('a reel file missing from the index gets the exact line to add', () => {
     .toEqual(["export { default as newone } from './newone'"])
 })
 
-// The s5.5 table, by reel: a context, or context:variant where a variant is named.
+// The launch reels' pools, as docs/reels.md lists them, by reel: a context,
+// or context:variant where a variant is named.
 const SPEC_CONTEXTS: Record<string, string[]> = {
   apes: ['agents'],
   breach: ['shell', 'thinking'],
@@ -67,7 +68,7 @@ const SPEC_CONTEXTS: Record<string, string[]> = {
 }
 
 // Only the launch reels are pinned here, so a reel added later does not fail this test.
-test('each launch reel\'s contexts match the spec table', () => {
+test('each launch reel\'s contexts match the pools docs/reels.md lists', () => {
   const launch = NEW_REELS.filter(r => r.name in SPEC_CONTEXTS)
   expect(launch.map(r => r.name).sort()).toEqual(Object.keys(SPEC_CONTEXTS))
   expect(Object.fromEntries(launch.map(r => [r.name, [...r.contexts].sort()]))).toEqual(SPEC_CONTEXTS)

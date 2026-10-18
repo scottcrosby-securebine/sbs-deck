@@ -15,7 +15,7 @@ what Claude does or what Claude reads.
 | Colored output | With quiet rows off, shell and MCP output is colored by pattern: up/down states, IP and MAC addresses, interface names, numbers with units, paths, JSON |
 | Working line | While Claude works, the mod draws a two-row line: a 32 by 2 cell full-color animation (a reel) beside a science-fiction phrase for what it is doing and a readout. A new phrase each time the state changes. In a narrow or short terminal it is one row: the phrase and the readout |
 | Readout | Time, tokens and effort for the turn: `12s · ~4.2k tokens · effort high`. The `~` shows while a step is still streaming and the count is an estimate |
-| Reels | Twelve reels, each its own scene, picked by what Claude is doing (shell, editing, web, subagents and so on) and shuffled so none repeats until all have played. About 1 turn in 50 plays a rare one. [`docs/reels.md`](docs/reels.md) lists how they are picked and how to add your own |
+| Reels | Twelve reels, each its own scene, picked by what Claude is doing (shell, editing, web, subagents and so on) and shuffled per context, so none repeats until that context's pool has played. About 1 turn in 50 plays a rare one. [`docs/reels.md`](docs/reels.md) lists how they are picked and how to add your own |
 | Themes | SecureBine gold is the default. `/sbs theme nightcity` switches to the Night City palette, and adds its own phrases while Breach Protocol or Sandevistan plays |
 
 The working line has 295 phrases across five states (connecting, thinking, setting up
@@ -111,14 +111,16 @@ The last command must print nothing: no color value is written outside
   shows `~` while a step is still streaming, and jumps to the real figure when
   the step ends.
 - The working line draws one row, with no reel, under 60 columns, under 12
-  rows, and in the desktop app. Between 60 and 79 columns the reel is 16 cells.
+  rows, in the desktop app and in VS Code. Between 60 and 79 columns the reel
+  is 16 cells.
 - Red and dark red nearly merge when a terminal rounds to 256 colors.
 - A reel file dropped into `hooks/reels/` also needs its line in
   `hooks/reels/index.ts`. The mod toasts the line at session start if it is
   missing, and `/sbs anim list` prints it.
 - Night City's message box cuts its corners only on terminals that have been
   checked to line them up, and the list of those is not filled in yet, so it
-  draws square corners everywhere.
+  draws square corners everywhere. To try them on a terminal, start Claude Code
+  with `SBS_CUT_CORNERS` set to the terminal's `TERM_PROGRAM` name.
 
 - The label shows the email of the account signed in to Claude Code, read
   from `.claude.json` (the record the status line uses) each time you send a
@@ -159,7 +161,7 @@ in October 2026 by independent reviewers, one of them a different model
 family. Every blocking finding was fixed, each code fix with a test that
 fails without it, or, by the owner's ruling, is listed under Known limits.
 The Night City theme, the two-row working line with its readout and the
-twelve reels are not yet reviewed. The test suite passes, 239 tests, on Claude
+twelve reels are not yet reviewed. The test suite passes, 242 tests, on Claude
 Code 2.1.302.
 The live checks this host can run passed in tmux in October 2026: both themes at
 80, 60 and 40 columns, 256 colors, a subagent turn and a reload, `/sbs anim off`,

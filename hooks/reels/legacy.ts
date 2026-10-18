@@ -1,7 +1,7 @@
 import type { Reel } from '../canvas'
 import { ANIMATIONS } from '../spinner'
 
-// Names drawn at half rate: they fail the per-cell flash rule at full rate (s5.4).
+// Names drawn at half rate: they fail the per-cell flash rule at full rate.
 export const HALF_RATE: ReadonlySet<string> = new Set(['stars', 'life', 'warp', 'glitch', 'eq'])
 
 export const LEGACY_REELS: readonly Reel[] = Object.entries(ANIMATIONS).map(([name, strip]) => {

@@ -5,9 +5,10 @@ import type { ThemeName } from './theme'
 
 export type Tier = 'full' | 'compact' | 'one-row'
 
-// Columns the spinner's own margin takes; Task 8 measures it live (PD5).
+// Columns the spinner's own margin takes, as measured live: none.
 export const SPINNER_INSET = 0
-// The desktop surface draws the one-row form unless this is set (D9).
+// The desktop surface draws the one-row form unless this is set. It stays off
+// until the two-row form is checked in the desktop app.
 export const DESKTOP_TWO_ROW = false
 
 const WIDE: readonly (readonly [number, number])[] = [
@@ -88,7 +89,8 @@ export function layoutLine(parts: LineParts): Run[][] {
     const text = truncate(words, room)
     return [[wordsRun(text), ...spaces('gap', 2), readoutRun(readout), ...spaces('pad', room - columnsOf(text))]]
   }
-  // PD4: no room for both, so the whole line truncates and the readout run is dropped.
+  // No room for the readout beside 4 columns of phrase: the whole line
+  // truncates at the end and the readout run is dropped, so it never wraps.
   const text = truncate(`${words}  ${readout}`, plateWidth)
   return [[wordsRun(text), ...spaces('pad', plateWidth - columnsOf(text))]]
 }

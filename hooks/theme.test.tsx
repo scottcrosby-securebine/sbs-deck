@@ -15,7 +15,7 @@ test('to256 rounds each channel to the cube level, as Claude Code does in tmux',
   expect(to256('#55EAD4')).toBe('#87ffd7')
 })
 
-test('contrast matches the spec figures', () => {
+test('contrast gives the WCAG ratios of yellow and red on black', () => {
   expect(round2(contrast('#F3E600', '#000000'))).toBe(16.13)
   expect(round2(contrast('#C5003C', '#000000'))).toBe(3.44)
   expect(round2(contrast('#F3E600', '#880425'))).toBe(7.71)

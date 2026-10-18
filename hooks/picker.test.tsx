@@ -44,7 +44,7 @@ test('detection follows the table, first row winning', () => {
   expect(contextOf({ ...base, mode: 'responding' })).toBe('other')
 })
 
-test('pools match the spec table, with fixed variants where it names one', () => {
+test('pools match the table in docs/reels.md, with fixed variants where it names one', () => {
   expect(poolOf('thinking', LAUNCH)).toEqual([
     { reel: 'breach', variant: undefined }, { reel: 'dontpanic', variant: 'deep-thought' }, { reel: 'hokuto', variant: 'seven-stars' }])
   expect(poolOf('other', LAUNCH).map(e => e.reel)).not.toContain('kodama')
