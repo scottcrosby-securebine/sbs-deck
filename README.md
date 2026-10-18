@@ -172,6 +172,8 @@ twelve reels are not yet reviewed. The test suite passes, 242 tests, on Claude
 Code 2.1.302.
 The live checks this host can run passed in tmux in October 2026: both themes at
 80, 60 and 40 columns, 256 colors, a subagent turn and a reload, `/sbs anim off`,
-`/clear`, the missing-index toast and `auto` in use. The owner's checks are
-pending: herdr remote, the eight named terminals, the desktop app, a light
-terminal and the twelve-reel review.
+`/clear`, the missing-index toast and `auto` in use. Over a herdr remote link
+the new line costs no more than the old one: the ssh send rate stayed within
+its own background swing (29 to 70 KB/s for both), and typing felt the same.
+The owner's checks still pending: the eight named terminals, the desktop app,
+a light terminal and the twelve-reel review.
