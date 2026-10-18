@@ -1923,6 +1923,51 @@ test('a pin typed mid-reel takes effect on the next frame', async ($, on) => {
   await ui.unmount()
 })
 
+const reelKey = async (ui: { findAll: (q: { type: string }) => Promise<{ key?: string }[]> }) =>
+  (await ui.findAll({ type: 'Box' })).find(b => b.key?.startsWith('reel:'))?.key
+
+test('a pinned reel\'s variants rotate across loops and turns', { timeoutMs: 30_000 }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  await sbsCommand($, 'anim hokuto')
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  expect(await reelKey(ui)).toBe('reel:hokuto:flurry')
+
+  // The loop's end starts the next variant.
+  await clock.advance(reelNamed('hokuto')!.variants.flurry!.loop * 125)
+  await clock.advance(125)
+  expect(await reelKey(ui)).toBe('reel:hokuto:seven-stars')
+
+  // A main turn drops the play; the rotation carries on, the third in turn.
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.advance(125)
+  expect(await reelKey(ui)).toBe('reel:hokuto:flurry')
+  await ui.unmount()
+})
+
+test('a hidden spinner takes one variant on return', { timeoutMs: 30_000 }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  await sbsCommand($, 'anim hokuto')
+  const shown = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  expect(await reelKey(shown)).toBe('reel:hokuto:flurry')
+  await shown.unmount()
+
+  // Frame 256 (flurry 108, seven-stars 144): one rotation per elapsed loop, or
+  // stepping each variant's own loop, would land on flurry.
+  await clock.advance((2 * 108 + 40) * 125)
+  const back = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  expect(await reelKey(back)).toBe('reel:hokuto:seven-stars')
+
+  for (let tick = 1; tick <= 8; tick += 1) {
+    await clock.advance(125)
+    expect(await reelKey(back), `tick ${tick}`).toBe('reel:hokuto:seven-stars')
+  }
+
+  await back.unmount()
+})
+
 test('a catchphrase replaces the phrase for 12 frames at its beat, whole and bold', async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
