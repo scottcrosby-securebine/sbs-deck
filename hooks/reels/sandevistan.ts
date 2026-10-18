@@ -111,12 +111,16 @@ function draw(c: Canvas, t: number, seed: number) {
     if (t >= RESUME && e < home && e >= home - 2 * S) for (const row of [0, 1]) c.bg(col, row, 'spark')
   }
 
-  // The neon sign: 2 or 3 kana on a lit plate, high on the skyline.
+  // The neon sign: 2 or 3 kana on a lit plate, high on the skyline. Each
+  // loop opens on the dark city: the sign lights a cell every 2 frames from
+  // frame 3, the windows one a frame from frame 2, and the rain falls in from
+  // the top, so a new seed's first frame never brightens many cells at once.
   const signAt = Math.floor(noise(seed, 4) * (W - 3)), signLen = 2 + Math.floor(noise(seed, 5) * 2)
   const signInk: Ink = (['hot', 'spark', 'cool'] as const)[Math.floor(noise(seed, 6) * 3)]!
   const sign: { col: number; char: string }[] = []
   for (let k = 0; k < signLen; k++) {
     const col = signAt + k
+    if (t < 3 + 2 * k) continue
     sign.push({ col, char: KANA[Math.floor(noise(seed, 7, k) * KANA.length)]! })
     c.bg(col, 0, frozen && tinted(col) ? c.mix(signInk, 'base', 0.5) : signInk)
   }
@@ -172,34 +176,43 @@ function draw(c: Canvas, t: number, seed: number) {
   // A mid building's top is a pixel, so no dot may share its cell.
   const roof = (col: number) => height[col] === 1 && !taken.has(col) && !sign.some(s => s.col === col)
   for (let col = 0; col < W; col++) if (roof(col)) c.pix(col, 1, tone[col]!)
-  const free = (x: number, y: number) => !taken.has((y >> 2) * W + cellOf(x)) && !(y < 4 && roof(cellOf(x)))
+  const signCell = (col: number) => col >= signAt && col < signAt + signLen
+  const free = (x: number, y: number) => !taken.has((y >> 2) * W + cellOf(x)) && !(y < 4 && (roof(cellOf(x)) || signCell(cellOf(x))))
 
-  // Lit windows on the buildings, one blinking slowly.
-  for (let col = 0; col < W; col++) {
-    if (noise(seed, 8, col) >= 0.45) continue
-    const x = col * 2 + (noise(seed, 9, col) < 0.5 ? 0 : 1)
-    const y = tower(col) && noise(seed, 10, col) < 0.5 ? 2 : 5 + Math.floor(noise(seed, 11, col) * 2)
-    if (col === Math.floor(noise(seed, 12) * W) && (t >> 3) & 1) continue
-    if (free(x, y)) c.put(x, y, noise(seed, 13, col) < 0.6 ? 'spark' : 'cool', 1)
-  }
-
-  // Rain: streaks falling a dot a frame, frozen in slowed time, shattering
-  // into sparks as the ripple of returning time reaches them.
   // One drop a column at most, so a cell's rain never flickers between drops.
   const rainCols = [...Array(W).keys()].sort((a, b) => noise(seed, 14, a) - noise(seed, 14, b)).slice(0, Math.round(20 * S))
-  for (const col of rainCols) {
+
+  // Lit windows on the buildings, off the rain's columns, one blinking slowly.
+  const windows = [...Array(W).keys()].filter(col => !rainCols.includes(col) && noise(seed, 8, col) < 0.8)
+  windows.forEach((col, j) => {
+    const x = col * 2 + (noise(seed, 9, col) < 0.5 ? 0 : 1)
+    const y = tower(col) && noise(seed, 10, col) < 0.5 ? 2 : 5 + Math.floor(noise(seed, 11, col) * 2)
+    if (t < 2 + j || (j === 0 && (t >> 3) & 1)) return
+    if (free(x, y)) c.put(x, y, noise(seed, 13, col) < 0.6 ? 'spark' : 'cool', 1)
+  })
+
+  // Rain: streaks falling a dot a frame, frozen in slowed time, shattering
+  // into sparks as the ripple of returning time reaches them, then falling
+  // on. The drops' phases are spread evenly (5 is odd, so i * 5 steps through
+  // all 8), so no more than a quarter of them enter a new cell on one frame.
+  const phase = Math.floor(noise(seed, 15) * 8)
+  rainCols.forEach((col, i) => {
     const x = col * 2 + (noise(seed, 16, col) < 0.5 ? 0 : 1)
-    const y0 = Math.floor(noise(seed, 15, col) * 8)
+    const y0 = (i * 5 + phase) % 8
     const thaw = RESUME + Math.ceil(Math.abs(col - back) / (2 * S))
-    const fall = t < FREEZE ? t : t < thaw ? FREEZE : FREEZE + t - thaw
-    const y = (y0 + fall) % 8
+    // The head, counted from above the top: a drop is drawn once it has
+    // fallen in. After its burst a drop falls in from the top again, on the
+    // same even phase as before the freeze.
+    const after = t - (RESUME - FREEZE), from = thaw + 2 - (RESUME - FREEZE)
+    const head = t < FREEZE ? y0 + t - 8 : t < thaw + 2 ? y0 + FREEZE - 8 : y0 + after - 8 * Math.floor((y0 + from) / 8) - 8
+    const y = (head + 8) % 8
     if (t >= thaw && t < thaw + 2) {
       for (const [dx, dy] of [[0, 0], [1, -1], [1, 1], [0, -2], [0, 2]] as const) if (free(x ^ dx, y + dy)) c.put(x ^ dx, y + dy, t === thaw ? 'hot' : 'spark', 2)
-      continue
+      return
     }
     const ink: Ink = t < thaw && tinted(col) ? c.mix('cool', 'base', 0.5) : 'cool'
-    for (const yy of [y, (y + 7) % 8]) if (free(x, yy)) c.put(x, yy, ink, 2)
-  }
+    for (const d of [0, 1]) if (head - d >= 0 && free(x, (y + 8 - d) % 8)) c.put(x, (y + 8 - d) % 8, ink, 2)
+  })
 
   for (const s of sign) if (!taken.has(s.col)) c.glyph(s.col, 0, s.char, 'base')
   for (const d of dots) c.put(d.x, d.y, d.ink, 5)
