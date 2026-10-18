@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, TestBody } from 'claude-code/testing'
 
 import { colorLine } from './color'
-import { NEW_REELS } from './library'
+import { NEW_REELS, reelNamed } from './library'
 import { HALF_RATE } from './reels/legacy'
 import { ANIMATIONS, AUTO, SPINNER_PHRASES, animationFor, decrypt, phraseFor, scanBar } from './spinner'
 
@@ -1920,5 +1920,75 @@ test('a pin typed mid-reel takes effect on the next frame', async ($, on) => {
   const outer = (await ui.findAll({ type: 'Box' })).find(b => b.key?.startsWith('reel:'))
   expect(outer?.key).toBe('reel:cylon:strip')
   expect((await drawnLine(ui)).art).toStartWith(ANIMATIONS.cylon!(0))
+  await ui.unmount()
+})
+
+test('a catchphrase replaces the phrase for 12 frames at its beat, whole and bold', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  await sbsCommand($, 'anim breach')
+  const beats = reelNamed('breach')!.variants.run!.beats
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  const bold = async () => ((await ui.find({ key: 'words' }))?.children[0] as { props: Record<string, unknown> } | undefined)?.props.bold === true
+
+  await clock.advance(beats[0]!.at * 125)
+  expect((await drawnLine(ui)).words).toBe('BREACH PROTOCOL')
+  expect(await bold()).toBe(true)
+
+  // Frame at + 11 is the catchphrase's last; frame at + 12 is past it.
+  await clock.advance(11 * 125)
+  expect((await drawnLine(ui)).words).toBe('BREACH PROTOCOL')
+  await clock.advance(125)
+  const { words } = await drawnLine(ui)
+  expect(words).not.toBe('BREACH PROTOCOL')
+  expect(await bold()).toBe(words === beats[1]!.phrase)
+  await ui.unmount()
+})
+
+test('/sbs anim with no argument and next step through the new reels', async ($, on) => {
+  const stored = fakeStore(on)
+  mock.clock(on)
+  const steps = NEW_REELS.filter(r => !r.rare).map(r => r.name)
+  expect(steps.length).toBeGreaterThan(0)
+  await sbsCommand($, 'anim auto')
+
+  // Each new reel in order, then back to the first; no argument and next alike.
+  for (const [k, name] of [...steps, steps[0]!].entries()) {
+    await sbsCommand($, k % 2 === 0 ? 'anim' : 'anim next')
+    expect(stored.animation, `step ${k}`).toBe(name)
+  }
+})
+
+test('a resize from 80 to 79 columns keeps the reel and its frame', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  await sbsCommand($, 'anim breach')
+  let ui = await spinnerOn($, 'thinking', 'terminal', { viewport: { columns: 80, rows: 40 } })
+  await clock.advance(1_000)
+  const wide = (await drawnLine(ui)).art.split('\n')
+  expect(wide.map(row => [...row].length)).toEqual([32, 32])
+  await ui.unmount()
+
+  ui = await spinnerOn($, 'thinking', 'terminal', { viewport: { columns: 79, rows: 40 } })
+  const outer = (await ui.findAll({ type: 'Box' })).find(b => b.key?.startsWith('reel:'))
+  expect(outer?.key).toBe('reel:breach:run')
+  expect((await drawnLine(ui)).art.split('\n')).toEqual(wide.map(row => [...row].slice(8, 24).join('')))
+  await ui.unmount()
+})
+
+test('a pinned reel at 59 columns shows no catchphrase', { timeoutMs: 30_000 }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  await sbsCommand($, 'anim breach')
+  const variants = Object.values(reelNamed('breach')!.variants)
+  const phrases = variants.flatMap(v => v.beats.map(b => b.phrase))
+  const last = Math.max(...variants.flatMap(v => v.beats.map(b => b.at)))
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: { columns: 59, rows: 40 } })
+
+  for (let frame = 0; frame <= last + 1; frame += 1) {
+    expect(phrases, `frame ${frame}`).not.toContain((await drawnLine(ui)).words)
+    await clock.advance(125)
+  }
+
   await ui.unmount()
 })
