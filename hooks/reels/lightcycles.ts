@@ -25,10 +25,11 @@ const DODGE = 78 // aqua drops a lane under red's corner
 const CRASH = 114 // red hits aqua's wall and derezzes
 const DOWN = 126 // the arena powers down, back to front
 
-// The camera rides with the cycles from launch until the crash, a column a
-// frame, and lurches a column further on two frames from `lurch`.
+// The camera rides with the cycles from launch, a column a frame, and
+// lurches a column further on two frames from `lurch`. Its last step is on
+// frame CRASH - 1, so the world is still on the crash.
 const cam = (f: number, lurch: number) =>
-  Math.min(Math.max(f - RACE, 0), CRASH - RACE) + Math.min(Math.max(f - lurch + 1, 0), 2)
+  Math.min(Math.max(f - RACE, 0), CRASH - 1 - RACE) + Math.min(Math.max(f - lurch + 1, 0), 2)
 
 type Px = { wx: number; y: number; at: number } // a wall pixel in world columns, born at frame `at`
 type Plan = {
@@ -51,7 +52,7 @@ function ride(x0: number, lane: number, steps: Map<number, [number, number]>, en
   return wall
 }
 
-const plans = new Map<number, Plan>()
+const plans = new Map<number, Plan>() // a fresh seed every loop: cleared past 8 plans
 function plan(seed: number): Plan {
   const known = plans.get(seed)
   if (known) return known
@@ -105,6 +106,7 @@ function plan(seed: number): Plan {
     aqua: ride(x0, a, aqua, LOOP - 1, lurch),
     red: ride(x0, a - 1, red, CRASH - 1, lurch),
   }
+  if (plans.size >= 8) plans.clear()
   plans.set(seed, p)
   return p
 }
@@ -116,7 +118,7 @@ function draw(c: Canvas, f: number, seed: number) {
   const [tile, seam]: [Ink, Ink] = [
     [c.mix('deep', 'base', 0.5), c.mix('cool', 'base', 0.5)],
     [c.mix('deep', 'base', 0.25), c.mix('spark', 'base', 0.5)],
-    [c.mix('cool', 'base', 0.75), c.mix('cool', 'base', 0.25)],
+    [c.mix('spark', 'base', 0.75), c.mix('cool', 'base', 0.25)],
   ][p.arena] as [Ink, Ink]
 
   // Drawn unmirrored on 32 columns, 4 lanes, 64 x 8 dots, then flushed mirrored.
@@ -126,6 +128,7 @@ function draw(c: Canvas, f: number, seed: number) {
   const lit = new Set<number>() // cells whose background outshines the seam dots
   const setBg = (s: number, row: number, ink: Ink) => { if (s >= 0 && s < 32 && row >= 0 && row < 2) bgs[row]![s] = ink }
   const setPx = (s: number, y: number, ink: Ink) => { if (s >= 0 && s < 32) pxs[y]![s] = ink }
+  const seamAt = (s: number) => ((s + cam(f, p.lurch)) % p.gap + p.gap) % p.gap === 0
   const down = (s: number) => f - DOWN - (s >> 1) // the power-down front reaches column s at 0
 
   // The arena: tiles and black seams with a dotted line, streaming with the camera.
@@ -134,7 +137,7 @@ function draw(c: Canvas, f: number, seed: number) {
     const k = down(s)
     if (k === 0) { setBg(s, 0, c.mix('spark', 'base', 0.5)); setBg(s, 1, c.mix('spark', 'base', 0.5)); lit.add(s).add(s + 32); continue }
     if (k > 0) continue
-    if (((s + cam(f, p.lurch)) % p.gap + p.gap) % p.gap === 0) {
+    if (seamAt(s)) {
       for (let dy = 0; dy < 8; dy++) dots.push([2 * s, dy, seam])
     } else {
       setBg(s, 0, tile); setBg(s, 1, tile)
@@ -149,7 +152,8 @@ function draw(c: Canvas, f: number, seed: number) {
       const s = px.wx - cam(f, p.lurch)
       if (s < 0 || s >= 32) return
       const head = i === laid.length - 1, cycle = i >= laid.length - 2
-      let ink: Ink | null = isRed ? (cycle && head ? 'spark' : 'hot') : cycle ? 'cool' : c.mix('cool', 'base', 0.25)
+      let ink: Ink | null = isRed ? (cycle && head ? 'spark' : 'hot')
+        : cycle ? (head && f === DODGE ? 'spark' : 'cool') : c.mix('cool', 'base', 0.5)
       let glow = true
       if (isRed && f >= CRASH) {
         // Derez: a front runs back along the wall from the crash, 2 columns a frame.
@@ -158,10 +162,10 @@ function draw(c: Canvas, f: number, seed: number) {
         if (k === 2 || k === 3) dots.push([2 * s + (px.wx & 1), 2 * px.y + k - 2, k === 2 ? 'hot' : 'deep'])
       }
       const k = down(s)
-      if (k >= 0) { ink = k > 3 ? null : isRed ? 'deep' : c.mix('cool', 'base', k < 2 ? 0.5 : 0.75); glow = false }
+      if (k >= 0) { ink = k > 1 ? null : isRed ? 'deep' : c.mix('cool', 'base', 0.75); glow = false }
       if (!ink) return
       setPx(s, px.y, ink)
-      if (glow && f >= 6) setBg(s, px.y >> 1, isRed ? 'deep' : c.mix('cool', 'base', 0.75))
+      if (glow && f >= 6 && !seamAt(s)) setBg(s, px.y >> 1, isRed ? 'deep' : c.mix('cool', 'base', 0.75))
     })
   }
 
@@ -183,20 +187,20 @@ function draw(c: Canvas, f: number, seed: number) {
     walls(p.aqua, false)
   }
 
-  // The grid pulse: a yellow ring runs out both ways from the cycles, 2 columns a frame.
-  if (f >= GRID && f < GRID + 12) {
+  // The grid pulse: a yellow ring runs out both ways from the cycles, a column a frame.
+  if (f >= GRID && f < GRID + 22) {
     for (let s = 0; s < 32; s++) {
-      const d = (Math.abs(s - x0) >> 1) - (f - GRID)
+      const d = Math.abs(s - x0) - (f - GRID)
       if (d !== 0 && d !== -1) continue
       const ink: Ink = d === 0 ? 'spark' : c.mix('spark', 'base', 0.5)
       setBg(s, 0, ink); setBg(s, 1, ink); lit.add(s).add(s + 32)
     }
   }
 
-  // The near miss: red's corner and aqua's head flare.
+  // The near miss: aqua's head goes yellow and the plates around it and red's corner flare.
   if (f === DODGE || f === DODGE + 1) {
     const ink: Ink = f === DODGE ? 'spark' : 'hot'
-    setBg(x0 + 1, a >> 1, ink); setBg(x0, (a + 1) >> 1, ink)
+    for (let s = x0 - 1; s <= x0 + 2; s++) { setBg(s, 0, ink); setBg(s, 1, ink); lit.add(s).add(s + 32) }
   }
 
   // The flash: 8 columns behind aqua's wall light yellow and cool through red, and debris flies.
