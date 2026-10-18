@@ -4,7 +4,7 @@ import { CONTEXTS } from './picker'
 import { checkLibrary, checkReel } from './reel-rules'
 import { ANIMATIONS } from './spinner'
 import template from './reels/_template'
-import { ALL_REELS, INDEXED_KEYS, LEGACY_REELS, NEW_REELS, unindexedLines } from './library'
+import { ALL_REELS, INDEXED_KEYS, LEGACY_REELS, NEW_REELS, offReels, reelField, unlistedFields, unindexedLines } from './library'
 
 for (const reel of ALL_REELS) {
   test(`the ${reel.name} reel meets the reel rules`, { timeoutMs: 30_000 }, () => {
@@ -48,6 +48,21 @@ test('the 22 animations are legacy reels by their old names', () => {
 test('a reel file missing from the index gets the exact line to add', () => {
   expect(unindexedLines(['index.ts', 'legacy.ts', '_template.ts', 'notes.md', 'breach.ts', 'newone.ts'], ['breach']))
     .toEqual(["export { default as newone } from './newone'"])
+})
+
+test('a reel\'s /config field is reel plus its name, and only false switches it off', () => {
+  expect(reelField('jupiter2')).toBe('reelJupiter2')
+  expect(offReels({ reelBreach: false, reelKodama: true, reelHokuto: 'false' })).toEqual(['breach'])
+  expect(offReels({})).toEqual([])
+})
+
+test('a launch reel with no /config field gets the exact plugin.json line to add', () => {
+  const full = Object.fromEntries(NEW_REELS.map(r => [reelField(r.name), true]))
+  expect(unlistedFields(full)).toEqual([])
+  const { reelHokuto: _gone, ...rest } = full
+  expect(unlistedFields(rest)).toEqual([
+    '"reelHokuto": {"type":"boolean","title":"Reel: Hokuto Shinken","description":"From Fist of the North Star.","default":true}',
+  ])
 })
 
 // The launch reels' pools, as docs/reels.md lists them, by reel: a context,
