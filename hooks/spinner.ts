@@ -334,8 +334,10 @@ function strideFor(size: number): number {
 // The phrase for a mode at one pick. The caller keeps a pick per mode and
 // advances it each time the turn enters that mode, so `size` picks in a row
 // show every phrase of the pool once.
-export function phraseFor(mode: SpinnerMode, pick: number): string {
-  const phrases = SPINNER_PHRASES[mode]
+export type PhraseSource = SpinnerMode | 'nightcity'
+
+export function phraseFor(source: PhraseSource, pick: number): string {
+  const phrases = source === 'nightcity' ? NIGHT_CITY_PHRASES : SPINNER_PHRASES[source]
   const index = Number.isFinite(pick) ? Math.abs(Math.trunc(pick)) : 0
 
   return phrases[(index * strideFor(phrases.length)) % phrases.length] ?? phrases[0] ?? ''
@@ -636,3 +638,36 @@ export function animationFor(choice: string, phrase: string): string {
 
   return THEMES.find(([, pattern]) => pattern.test(phrase))?.[0] ?? 'bar'
 }
+
+// Night City's own pool, shown only in that theme while Breach Protocol or
+// Sandevistan plays, so each phrase appears with its graphic.
+export const NIGHT_CITY_PHRASES: readonly string[] = [
+  'Scanning with Kiroshi optics',
+  'Quickhacking the subnet',
+  'Slotting the shard',
+  'Calling the Afterlife',
+  'Reading the braindance',
+  'Syncing the cyberdeck',
+  'Pinging the access point',
+  'Matching the code matrix',
+  'Uploading the daemon',
+  'Stacking the daemons',
+  'Slipping past NetWatch',
+  'Skirting the Blackwall',
+  'Spinning up the Kerenzikov',
+  'Booting the Sandevistan',
+  'Checking the fixer\'s gig',
+  'Meeting the fixer',
+  'Hailing a Delamain cab',
+  'Reading the dataterm',
+  'Patching the cyberware',
+  'Calibrating the optics',
+  'Tracing the netrunner',
+  'Tuning in to Growl FM',
+  'Shadowing an Arasaka exec',
+  'Cruising through Watson',
+  'Building street cred',
+  'Decoding the datamine',
+  'Checking the NCPD scanner',
+  'Visiting the ripperdoc',
+]

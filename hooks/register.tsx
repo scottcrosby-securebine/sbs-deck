@@ -10,8 +10,8 @@ import type { Context } from './picker'
 import { endStep, newTurn, readoutText, withEffort } from './readout'
 import type { TurnStats } from './readout'
 import { AUTO, animationFor, decrypt, phraseFor } from './spinner'
-import type { SpinnerMode } from './spinner'
-import { ROLES } from './theme'
+import type { PhraseSource, SpinnerMode } from './spinner'
+import { ROLES, THEME_NAMES, cutsCorners } from './theme'
 import type { Role, ThemeName } from './theme'
 import { layoutLine, rowOneText, tierFor } from './workline'
 
@@ -41,6 +41,8 @@ const MAX_AGENTS = 50
 const INSTANCE_TTL_MS = 10 * 60_000
 // How many frames a beat's catchphrase stands on row 1.
 const BEAT_FRAMES = 12
+// The reels whose play shows the Night City phrase pool in that theme.
+const NIGHT_CITY_REELS = ['breach', 'sandevistan']
 
 // How many lines of a result are drawn colored before the rest is counted.
 const MAX_RESULT_LINES = 20
@@ -242,6 +244,7 @@ const SBS_USAGE = [
   '/sbs quiet on | off    one-line tool rows with output hidden',
   '/sbs color on | off   pattern coloring of output (seen with quiet off)',
   '/sbs anim [name|next|auto|off|list]  the working line\'s reel',
+  '/sbs theme [securebine|nightcity]  the colors the mod draws in',
   '/sbs name <name>       what the reply header calls the assistant; clear to undo',
   '/sbs status            what is on now',
 ].join('\n')
@@ -321,6 +324,10 @@ export const register: Register = on => {
   let isEnabled = true
   let theme: ThemeName = 'securebine'
   const paint = (role: Role) => ROLES[theme][role]
+  const isTheme = (name: unknown): name is ThemeName => THEME_NAMES.includes(name as ThemeName)
+  // Whether this terminal's font lines up Night City's cut corners, read at
+  // session start.
+  let isCutCorner = false
   // Quiet: each tool call is one line saying what it is for, and its output is
   // not drawn unless it failed.
   let isQuiet = true
@@ -335,17 +342,18 @@ export const register: Register = on => {
   let ticks = 0
   let drawnAt = 0
   const firstPick = Math.floor(Math.random() * 1000)
-  const picks: Record<SpinnerMode, number> = {
+  const picks: Record<PhraseSource, number> = {
     requesting: firstPick,
     thinking: firstPick,
     'tool-input': firstPick,
     'tool-use': firstPick,
     responding: firstPick,
+    nightcity: firstPick,
   }
   // Each spinner's state, its phrase and when that came up, by surface and
   // instance: a session can draw several spinners at once (the terminal and the
   // desktop, or one per agent), and each keeps its own phrase.
-  const phrasesShown = new Map<string, { mode: SpinnerMode; pick: number; since: number }>()
+  const phrasesShown = new Map<string, { mode: SpinnerMode; source: PhraseSource; pick: number; since: number }>()
   // The turn tracker: the main loop's running tools in start order, the tool
   // whose input the model is streaming, the agents seen on turn and tool
   // events, and the characters streamed in each loop's current step.
@@ -403,7 +411,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'sbs',
-      description: 'SecureBine styling: on, off, normal, reset, quiet on|off, color on|off, anim [name|next|auto|off|list], name <name>, status',
+      description: 'SecureBine styling: on, off, normal, reset, quiet on|off, color on|off, anim [name|next|auto|off|list], theme [securebine|nightcity], name <name>, status',
     })
     await $.command.register({
       name: 'sbs-color',
@@ -420,6 +428,21 @@ export const register: Register = on => {
     isEnabled = (await $.store.get('isEnabled')) !== false
     isColoring = (await $.store.get('isColoring')) !== false
     isQuiet = (await $.store.get('isQuiet')) !== false
+
+    const savedTheme = await $.store.get('theme')
+
+    if (isTheme(savedTheme)) {
+      theme = savedTheme
+    }
+
+    isCutCorner = cutsCorners({
+      TMUX: await $.env.get('TMUX'),
+      TERM_PROGRAM: await $.env.get('TERM_PROGRAM'),
+      TERM: await $.env.get('TERM'),
+      WT_SESSION: await $.env.get('WT_SESSION'),
+      KITTY_WINDOW_ID: await $.env.get('KITTY_WINDOW_ID'),
+      ALACRITTY_WINDOW_ID: await $.env.get('ALACRITTY_WINDOW_ID'),
+    })
 
     const savedAnimation = await $.store.get('animation')
 
@@ -461,7 +484,7 @@ export const register: Register = on => {
     const [what = '', how = ''] = e.args.trim().toLowerCase().split(/\s+/)
     const status = () =>
       `Styling is ${isEnabled ? 'on' : 'off'}; quiet tool rows are ${isQuiet ? 'on' : 'off'}; output coloring is ${isColoring ? 'on' : 'off'}. ` +
-      `Spinner animation: ${animation}. Reply header: ${replyName()}.`
+      `Spinner animation: ${animation}. Reply header: ${replyName()}. Theme: ${theme}.`
 
     // On or off as asked; with neither word, the opposite of what it is now.
     const setting = (current: boolean): boolean | undefined =>
@@ -524,6 +547,30 @@ export const register: Register = on => {
       await $.store.set('animation', animation)
 
       return { text: `Spinner animation is ${animation}.` }
+    }
+
+    if (what === 'theme') {
+      const choices = `Choose from: ${THEME_NAMES.join(', ')}.`
+
+      if (how === '') {
+        return { text: `Theme: ${theme}. ${choices}` }
+      }
+
+      if (!isTheme(how)) {
+        return { text: `No theme called "${how}". ${choices}` }
+      }
+
+      theme = how
+      await $.store.set('theme', theme)
+      $.ui.invalidate('ui.render')
+
+      return {
+        text:
+          `Theme is now ${theme}.` +
+          (theme === 'nightcity'
+            ? '\nFor Claude Code\'s own colors, run install.sh --theme nightcity, or pick it with /theme once installed.'
+            : ''),
+      }
     }
 
     if ((what === 'on' || what === 'off' || what === 'normal' || what === 'reset') && how === '') {
@@ -783,9 +830,10 @@ export const register: Register = on => {
     const prompt = comparable(e.props.text)
     const isWaiting = waitingPrompts.has(prompt)
     const label = paint(isWaiting ? 'queued' : 'label')
+    const frame = paint(isWaiting ? 'queuedFrame' : 'frame').color
 
-    return (
-      <Box flexDirection="column" borderStyle="single" borderColor={paint(isWaiting ? 'queuedFrame' : 'frame').color} paddingX={1}>
+    const box = (
+      <Box flexDirection="column" borderStyle="single" borderColor={frame} paddingX={1}>
         <Box flexDirection="row">
           <Text color={label.color} backgroundColor={label.backgroundColor}>
             {OPERATOR_ICON}{' '}
@@ -798,6 +846,25 @@ export const register: Register = on => {
         {/* The engine's row opens with a blank line; the eyebrow takes it. */}
         <Box flexDirection="column" marginTop={-1}>
           {inner}
+        </Box>
+      </Box>
+    )
+
+    if (theme !== 'nightcity' || !isCutCorner || e.surface !== 'terminal') {
+      return box
+    }
+
+    // Night City cuts the top-left and bottom-right corners: overlays drawn
+    // after the border, one placed on the corner, one pulled up onto the last
+    // row (spike B2: both land, the sides stay whole).
+    return (
+      <Box flexDirection="column">
+        {box}
+        <Box key="cut-tl" position="absolute" top={0} left={0}>
+          <Text color={frame}>╱</Text>
+        </Box>
+        <Box key="cut-br" marginTop={-1} alignSelf="flex-end">
+          <Text color={frame}>╱</Text>
         </Box>
       </Box>
     )
@@ -949,16 +1016,20 @@ export const register: Register = on => {
     }
 
     const tier = tierFor(e.surface, e.viewport, animation === 'off')
+    // Until the picker plays reels in auto, the playing reel is the pinned one.
+    const source: PhraseSource =
+      theme === 'nightcity' && tier !== 'one-row' && NIGHT_CITY_REELS.includes(animation) ? 'nightcity' : e.props.mode
     let shown = phrasesShown.get(instance)
 
-    if (shown?.mode !== e.props.mode) {
-      picks[e.props.mode] += 1
-      shown = { mode: e.props.mode, pick: picks[e.props.mode], since: now }
+    // A new phrase whenever the mode or the pool changes.
+    if (shown?.mode !== e.props.mode || shown.source !== source) {
+      picks[source] += 1
+      shown = { mode: e.props.mode, source, pick: picks[source], since: now }
       phrasesShown.set(instance, shown)
     }
 
     const age = Math.floor((now - shown.since) / TICK_MS)
-    const phrase = phraseFor(e.props.mode, shown.pick)
+    const phrase = phraseFor(source, shown.pick)
 
     // The reel plays from this spinner's own frame 0; a loop's end starts the
     // next loop afresh, however many loops passed while it was hidden.

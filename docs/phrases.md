@@ -331,3 +331,38 @@ Every phrase the spinner can show, by the state it is shown in, with the work it
 | Reporting to the CIC | Battlestar Galactica |
 | Saying so say we all | Battlestar Galactica |
 | Citing the Codex Astartes | Warhammer 40,000 |
+
+## Night City
+
+28 phrases. Shown only in the Night City theme, while Breach Protocol or Sandevistan plays, in place of the state's own pool. Original wording in the game's idiom; no line is quoted from it.
+
+| Phrase | Source |
+|---|---|
+| Scanning with Kiroshi optics | Cyberpunk 2077 |
+| Quickhacking the subnet | Cyberpunk 2077 |
+| Slotting the shard | Cyberpunk 2077 |
+| Calling the Afterlife | Cyberpunk 2077 |
+| Reading the braindance | Cyberpunk 2077, after Cyberpunk 2020 |
+| Syncing the cyberdeck | Cyberpunk 2077 |
+| Pinging the access point | Cyberpunk 2077 |
+| Matching the code matrix | Cyberpunk 2077 |
+| Uploading the daemon | Cyberpunk 2077 |
+| Stacking the daemons | Cyberpunk 2077 |
+| Slipping past NetWatch | Cyberpunk 2077, after Cyberpunk 2020 |
+| Skirting the Blackwall | Cyberpunk 2077, after Cyberpunk Red |
+| Spinning up the Kerenzikov | Cyberpunk 2077, after Cyberpunk 2020 |
+| Booting the Sandevistan | Cyberpunk 2077, after Cyberpunk 2020 |
+| Checking the fixer's gig | Cyberpunk 2077 |
+| Meeting the fixer | Cyberpunk 2077 |
+| Hailing a Delamain cab | Cyberpunk 2077 |
+| Reading the dataterm | Cyberpunk 2077 |
+| Patching the cyberware | Cyberpunk 2077 |
+| Calibrating the optics | Cyberpunk 2077 |
+| Tracing the netrunner | Cyberpunk 2077 |
+| Tuning in to Growl FM | Cyberpunk 2077 |
+| Shadowing an Arasaka exec | Cyberpunk 2077 |
+| Cruising through Watson | Cyberpunk 2077 |
+| Building street cred | Cyberpunk 2077 |
+| Decoding the datamine | Cyberpunk 2077 |
+| Checking the NCPD scanner | Cyberpunk 2077 |
+| Visiting the ripperdoc | Cyberpunk 2077 |

@@ -4,7 +4,7 @@ import type { Engine, TestBody } from 'claude-code/testing'
 import { colorLine } from './color'
 import { NEW_REELS, reelNamed } from './library'
 import { HALF_RATE } from './reels/legacy'
-import { ANIMATIONS, AUTO, SPINNER_PHRASES, animationFor, decrypt, phraseFor, scanBar } from './spinner'
+import { ANIMATIONS, AUTO, NIGHT_CITY_PHRASES, SPINNER_PHRASES, animationFor, decrypt, phraseFor, scanBar } from './spinner'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -1993,4 +1993,210 @@ test('a pinned reel at 59 columns shows no catchphrase', { timeoutMs: 30_000 }, 
   }
 
   await ui.unmount()
+})
+
+// A session started on this store and these variables, as Claude Code starts one.
+const startSession = async ($: Engine, on: Parameters<TestBody>[1], surface: 'terminal' | 'desktop' = 'terminal') => {
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  await $.session.start({ cwd: '/', surface, isInteractive: true })
+}
+
+test('/sbs theme sets, shows and is kept by reset', async ($, on) => {
+  const stored = fakeStore(on)
+  mock.env(on, { USER: 'tester' })
+  await startSession($, on)
+  const run = async (args: string) => JSON.stringify(await sbsCommand($, args))
+
+  const reply = await run('theme nightcity')
+  expect(reply).toContain('Theme is now nightcity.')
+  expect(reply).toContain('For Claude Code\'s own colors, run install.sh --theme nightcity, or pick it with /theme once installed.')
+  expect(stored.theme).toBe('nightcity')
+  await run('reset')
+  expect(stored.theme).toBe('nightcity')
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(await run('status')).toContain('Reply header: CLAUDE. Theme: nightcity.')
+  expect(await run('theme securebine')).toContain('Theme is now securebine.')
+  expect(await run('theme securebine')).not.toContain('install.sh')
+})
+
+test('/sbs theme with no argument names the theme and the choices', async ($, on) => {
+  mock.store(on)
+  expect(JSON.stringify(await sbsCommand($, 'theme'))).toContain('Theme: securebine. Choose from: securebine, nightcity.')
+  await sbsCommand($, 'theme nightcity')
+  expect(JSON.stringify(await sbsCommand($, 'theme'))).toContain('Theme: nightcity. Choose from: securebine, nightcity.')
+})
+
+test('an unknown theme changes nothing', async ($, on) => {
+  const stored = fakeStore(on)
+  expect(JSON.stringify(await sbsCommand($, 'theme neon'))).toContain('No theme called \\"neon\\". Choose from: securebine, nightcity.')
+  expect(stored.theme).toBeUndefined()
+  expect(JSON.stringify(await sbsCommand($, 'status'))).toContain('Theme: securebine.')
+})
+
+test('a stored theme that is not a theme is ignored', async ($, on) => {
+  mock.store(on, { theme: 'neon' })
+  mock.env(on, { USER: 'tester' })
+  await startSession($, on)
+  expect(JSON.stringify(await sbsCommand($, 'status'))).toContain('Theme: securebine.')
+})
+
+test('a stored theme is restored at session start', async ($, on) => {
+  mock.store(on, { theme: 'nightcity' })
+  mock.env(on, { USER: 'tester' })
+  await startSession($, on)
+  expect(JSON.stringify(await sbsCommand($, 'status'))).toContain('Theme: nightcity.')
+})
+
+test('Night City draws the label on a yellow plate and the header on an aqua plate', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  engineUserMessage(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('ui.render', { component: 'AssistantMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.text}</Text>
+  })
+  await sbsCommand($, 'theme nightcity')
+
+  const box = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'UserMessage',
+    props: { text: 'hello there', origin: { kind: 'composer' }, isExpanded: false },
+  })
+  expect((await box.find({ type: 'Text', text: 'OPERATOR' }))?.props.backgroundColor).toBe('#F3E600')
+  await box.unmount()
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const reply = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'AssistantMessage',
+    requestId: 'm1',
+    props: { text: 'a reply', isFirstOfReply: true },
+  })
+  expect((await reply.find({ type: 'Text', text: 'CLAUDE' }))?.props.backgroundColor).toBe('#55EAD4')
+  await reply.unmount()
+})
+
+// Every color and plate the art rows draw in.
+async function artPaints(ui: { find: (q: { key: string }) => Promise<{ children: unknown[] } | undefined> }) {
+  const paints: string[] = []
+  const walk = (node: unknown) => {
+    if (typeof node !== 'object' || node === null) return
+    const { props, children } = node as { props?: Record<string, unknown>; children?: unknown[] }
+    for (const value of [props?.color, props?.backgroundColor]) if (typeof value === 'string') paints.push(value.toUpperCase())
+    for (const child of children ?? []) walk(child)
+  }
+  for (const key of ['art0', 'art1']) walk(await ui.find({ key }))
+
+  return paints
+}
+
+test('a theme change mid-reel recolors the next frame without restarting the reel', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  await sbsCommand($, 'anim breach')
+  const beats = reelNamed('breach')!.variants.run!.beats
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+
+  await clock.advance((beats[0]!.at + 12) * 125)
+  expect(await artPaints(ui)).toContainEqual('#FF2E97')
+  await sbsCommand($, 'theme nightcity')
+  await clock.advance(125)
+  const outer = (await ui.findAll({ type: 'Box' })).find(b => b.key?.startsWith('reel:'))
+  expect(outer?.key).toBe('reel:breach:run')
+  const paints = await artPaints(ui)
+  expect(paints.some(p => ['#C5003C', '#880425', '#F3E600', '#55EAD4'].includes(p)), paints.join()).toBe(true)
+  for (const old of ['#FF2E97', '#46637B', '#F5A701', '#00E5FF']) expect(paints).not.toContain(old)
+
+  for (let frame = beats[0]!.at + 13; frame < beats[1]!.at; frame += 1) {
+    expect((await drawnLine(ui)).words, `frame ${frame}`).not.toBe(beats[0]!.phrase)
+    await clock.advance(125)
+  }
+
+  expect((await drawnLine(ui)).words).toBe(beats[1]!.phrase)
+  await ui.unmount()
+})
+
+// Row 1's resolved phrases over 200 frames: those that are a whole phrase of
+// the Night City pool or of the thinking pool.
+async function resolvedPhrases(
+  $: Engine,
+  on: Parameters<TestBody>[1],
+  setup: string[],
+  viewport: { columns: number; rows: number },
+) {
+  const clock = mock.clock(on)
+  mock.store(on)
+  for (const args of setup) await sbsCommand($, args)
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport })
+  const samples: string[] = []
+
+  for (let frame = 0; frame < 200; frame += 1) {
+    const { words } = await drawnLine(ui)
+    const phrase = words.split(' · ')[0]!.replace(/…$/, '')
+    if (NIGHT_CITY_PHRASES.includes(words) || SPINNER_PHRASES.thinking.includes(words)) samples.push(words)
+    else if (NIGHT_CITY_PHRASES.includes(phrase) || SPINNER_PHRASES.thinking.includes(phrase)) samples.push(phrase)
+    await clock.advance(125)
+  }
+
+  await ui.unmount()
+  expect(samples.length).toBeGreaterThanOrEqual(10)
+
+  return samples
+}
+
+test('in Night City row 1 draws from the Night City pool while Breach Protocol plays', { timeoutMs: 30_000 }, async ($, on) => {
+  for (const phrase of await resolvedPhrases($, on, ['theme nightcity', 'anim breach'], WIDE)) expect(NIGHT_CITY_PHRASES).toContain(phrase)
+})
+
+test('in SecureBine row 1 keeps the mode pool while Breach Protocol plays', { timeoutMs: 30_000 }, async ($, on) => {
+  for (const phrase of await resolvedPhrases($, on, ['anim breach'], WIDE)) expect(SPINNER_PHRASES.thinking).toContain(phrase)
+})
+
+test('in Night City row 1 keeps the mode pool while a legacy reel plays', { timeoutMs: 30_000 }, async ($, on) => {
+  for (const phrase of await resolvedPhrases($, on, ['theme nightcity', 'anim bar'], WIDE)) expect(SPINNER_PHRASES.thinking).toContain(phrase)
+})
+
+test('in Night City row 1 keeps the mode pool at 59 columns', { timeoutMs: 30_000 }, async ($, on) => {
+  const narrow = { columns: 59, rows: 40 }
+  for (const phrase of await resolvedPhrases($, on, ['theme nightcity', 'anim breach'], narrow)) expect(SPINNER_PHRASES.thinking).toContain(phrase)
+})
+
+test('in Night City row 1 keeps the mode pool with anim off', { timeoutMs: 30_000 }, async ($, on) => {
+  for (const phrase of await resolvedPhrases($, on, ['theme nightcity', 'anim off'], WIDE)) expect(SPINNER_PHRASES.thinking).toContain(phrase)
+})
+
+test('Night City boxes stay square on an unchecked terminal', async ($, on) => {
+  mock.store(on)
+  engineUserMessage(on)
+  let variables: Record<string, string> = {}
+  on('env.get', ($, e) => ({ value: variables[e.name] }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  await sbsCommand($, 'theme nightcity')
+  const cases: [string, Record<string, string>, 'terminal' | 'desktop'][] = [
+    ['unchecked terminal', { TERM_PROGRAM: 'sbs-test-unchecked-terminal' }, 'terminal'],
+    ['tmux', { TMUX: '/tmp/tmux-1/default,1,0', TERM_PROGRAM: 'sbs-test-unchecked-terminal' }, 'terminal'],
+    ['no variables', {}, 'terminal'],
+    ['desktop', { TERM_PROGRAM: 'sbs-test-unchecked-terminal' }, 'desktop'],
+  ]
+
+  for (const [name, env, surface] of cases) {
+    variables = env
+    await $.session.start({ cwd: '/', surface, isInteractive: true })
+    const ui = await $.ui.mount({
+      plugin: 'sbs-deck',
+      surface,
+      component: 'UserMessage',
+      props: { text: 'hello there', origin: { kind: 'composer' }, isExpanded: false },
+    })
+    expect(await ui.find({ type: 'Text', text: 'OPERATOR' }), name).toBeDefined()
+    expect(await ui.find({ key: 'cut-tl' }), name).toBeUndefined()
+    expect(await ui.find({ key: 'cut-br' }), name).toBeUndefined()
+    await ui.unmount()
+  }
 })

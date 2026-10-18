@@ -129,3 +129,24 @@ export function blend(a: string, b: string, t: number): string {
   const [x, y] = [channels(a), channels(b)]
   return toHex(x.map((v, i) => Math.round(v + (y[i]! - v) * t)))
 }
+
+// The terminals whose font lines `╱` up with the box lines, by the name
+// cutsCorners gives them. Filled from the owner's checks; empty until then.
+export const CUT_CORNER_TERMINALS: readonly string[] = []
+
+// Whether Night City's box may cut its corners here: never under tmux, else
+// only for a terminal on the list. The terminal is named by TERM_PROGRAM, then
+// its own variable, then TERM last, so WSL in Windows Terminal reads as that.
+export function cutsCorners(
+  env: Readonly<Record<string, string | undefined>>,
+  terminals: readonly string[] = CUT_CORNER_TERMINALS,
+): boolean {
+  if (env.TMUX) return false
+  const name =
+    env.TERM_PROGRAM ||
+    (env.WT_SESSION && 'windows-terminal') ||
+    (env.KITTY_WINDOW_ID && 'kitty') ||
+    (env.ALACRITTY_WINDOW_ID && 'alacritty') ||
+    env.TERM
+  return name ? terminals.includes(name) : false
+}
