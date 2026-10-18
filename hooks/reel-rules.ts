@@ -1,10 +1,11 @@
 import { drawFrame, inkHex } from './canvas'
 import type { Canvas, Cell, Ink, Reel, Variant } from './canvas'
-import { SLOTS, THEME_NAMES, luminance } from './theme'
+import { SLOTS, THEME_NAMES, luminance, to256 } from './theme'
 import type { Slot, ThemeName } from './theme'
 
-// The reel rules of s5.4, measured as the Task 3 brief states them. A finding
-// names the variant, seed, form, theme and frame where it applies.
+// The reel rules: slots, glyphs, color, coverage, beats, flash, phrases, names
+// and seed. A finding names the variant, seed, form, theme and frame where it
+// applies, and for a flash the color depth when it is 256 colors.
 
 export type Finding = {
   reel: string
@@ -17,6 +18,10 @@ export const SEEDS = [1, 2, 3]
 
 type Form = 32 | 16
 const FORMS: readonly Form[] = [32, 16]
+// A color depth: truecolor, or 256 colors, where Claude Code rounds each color
+// to the cube (under tmux, and in a terminal without truecolor).
+type Depth = 'truecolor' | '256'
+const DEPTHS: readonly Depth[] = ['truecolor', '256']
 const SLOT_NAMES = Object.keys(SLOTS.nightcity) as Slot[]
 const PLATES = new Set(['▀', '▄', '█'])
 const STEP = 0.1
@@ -50,21 +55,22 @@ function slotsOf(ink: Ink | null): Slot[] {
 }
 
 const lumCache = new Map<string, number>()
-function inkLuminance(ink: Ink | null, theme: ThemeName): number {
-  const key = `${theme}|${ink === null ? 'base' : inkName(ink)}`
+function inkLuminance(ink: Ink | null, theme: ThemeName, depth: Depth): number {
+  const key = `${theme}|${depth}|${ink === null ? 'base' : inkName(ink)}`
   let lum = lumCache.get(key)
   if (lum === undefined) {
     const valid = ink !== null && (typeof ink === 'string' ? isSlot(ink) : isSlot(ink.from) && isSlot(ink.to))
-    lum = luminance(valid ? inkHex(ink, theme) : SLOTS[theme].base)
+    const hex = valid ? inkHex(ink, theme) : SLOTS[theme].base
+    lum = luminance(depth === '256' ? to256(hex) : hex)
     lumCache.set(key, lum)
   }
   return lum
 }
 
-export function cellLuminance(cell: Cell, theme: ThemeName): number {
-  const bg = inkLuminance(cell.bg, theme)
+export function cellLuminance(cell: Cell, theme: ThemeName, depth: Depth = 'truecolor'): number {
+  const bg = inkLuminance(cell.bg, theme, depth)
   if (cell.char === ' ' || cell.char === '⠀') return bg
-  const fg = inkLuminance(cell.fg, theme)
+  const fg = inkLuminance(cell.fg, theme, depth)
   if (cell.char === '█') return fg
   if (cell.char === '▀' || cell.char === '▄') return (fg + bg) / 2
   return 0.3 * fg + 0.7 * bg
@@ -196,11 +202,11 @@ export function checkReel(reel: Reel): Finding[] {
     return frames
   }
   const lums = new Map<string, Float64Array[]>()
-  const lit = (name: string, seed: number, form: Form, theme: ThemeName): Float64Array[] => {
-    const key = `${name}|${seed}|${form}|${theme}`
+  const lit = (name: string, seed: number, form: Form, theme: ThemeName, depth: Depth): Float64Array[] => {
+    const key = `${name}|${seed}|${form}|${theme}|${depth}`
     let frames = lums.get(key)
     if (!frames) {
-      frames = play(name, seed, form).map(rows => Float64Array.from(rows.flat(), cell => cellLuminance(cell, theme)))
+      frames = play(name, seed, form).map(rows => Float64Array.from(rows.flat(), cell => cellLuminance(cell, theme, depth)))
       lums.set(key, frames)
     }
     return frames
@@ -239,14 +245,16 @@ export function checkReel(reel: Reel): Finding[] {
   // t, for every ordered pair (A, B), self pairs included, and every seed pair.
   // A junction reports only windows that cross it, and a loop's rising frames
   // only when its first frame, the one after the junction, is one of them.
+  // Each theme is measured at both color depths.
   const last = (frames: Float64Array[]) => frames[frames.length - 1]!
-  for (const theme of THEME_NAMES) {
+  for (const theme of THEME_NAMES) for (const depth of DEPTHS) {
     for (const form of FORMS) {
       const limit = form === 32 ? 16 : 8
-      const place = (name: string, seed: number, frame: number) => `variant ${name}, seed ${seed}, form ${form}, theme ${theme}, frame ${frame}`
+      const shade = depth === '256' ? ' at 256 colors' : ''
+      const place = (name: string, seed: number, frame: number) => `variant ${name}, seed ${seed}, form ${form}, theme ${theme}${shade}, frame ${frame}`
       const cellAt = (cell: number) => `cell ${cell % form},${Math.floor(cell / form)}`
       for (const [name, v] of playable) {
-        const loops = SEEDS.map(seed => lit(name, seed, form, theme))
+        const loops = SEEDS.map(seed => lit(name, seed, form, theme, depth))
         const frames = loops.flat()
         for (let cell = 0; cell < frames[0]!.length; cell++) {
           const k = cellFlash(frames, cell)
@@ -264,7 +272,7 @@ export function checkReel(reel: Reel): Finding[] {
         for (const [b] of playable) {
           for (const s of SEEDS) {
             for (const t of SEEDS) {
-              const ahead = lit(a, s, form, theme), next = lit(b, t, form, theme)
+              const ahead = lit(a, s, form, theme, depth), next = lit(b, t, form, theme, depth)
               const after = ` (after variant ${a} seed ${s})`
               // B first, so the junction A to B is the wrap: transition frames.length enters B's frame 0.
               const frames = [...next, ...ahead]

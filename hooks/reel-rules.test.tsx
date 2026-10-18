@@ -133,6 +133,21 @@ test('17 cells rising together twice in a loop is a flash finding', () => {
   expect(rules(reel({}, extra))).toEqual(['flash'])
 })
 
+test('a rise under 0.10 in truecolor that 256 colors rounds over it is a flash finding', () => {
+  // A quarter of spark over base is under 0.05 in truecolor in both themes and
+  // over 0.10 once rounded to the 256-color cube.
+  const extra: Draw = (c, frame) => {
+    if ((frame >= 10 && frame < 20) || (frame >= 50 && frame < 60)) {
+      for (let col = 16; col < 32; col++) c.bg(col, 1, c.mix('base', 'spark', 0.25))
+      c.bg(31, 0, c.mix('base', 'spark', 0.25))
+    }
+  }
+  const found = checkReel(reel({}, extra))
+  expect([...new Set(found.map(f => f.rule))]).toEqual(['flash'])
+  expect(found.length).toBeGreaterThan(0)
+  expect(found.every(f => f.detail.includes('at 256 colors'))).toBe(true)
+})
+
 // One cell at (22, 0): `ends` is black, yellow, black, yellow over the loop's
 // last 4 frames, `opens` is yellow, black, yellow over its first 3, and `still`
 // stays black. Alone, each holds at most 4 counted changes in any 8 frames.
