@@ -1,8 +1,9 @@
 import type { Canvas, Ink, Reel } from '../canvas'
 import { noise } from '../canvas'
 
-// Digital rain (The Matrix). A block cursor blinks on a black screen. WAKE UP,
-// NEO: the code erupts from the cursor and pours down every column, each
+// Digital rain (The Matrix). As the code drains, a block cursor types WAKE
+// UP, NEO on the black screen. WAKE UP, NEO: the code erupts from the cursor
+// and pours down every column, each
 // stream led by a lit head glyph with its trail fading behind it, every
 // katakana changing in place in both rows, and about 40% of the columns
 // trailing a streak of 2 or 3 dots behind their heads. Red glitch cells blink
@@ -14,7 +15,7 @@ import { noise } from '../canvas'
 // runs back across the whole width, the code lighting yellow behind it. KNOCK,
 // KNOCK, NEO: the rain stops dead and a red disc booms out of the center from a
 // yellow core, twice. Red glitches swarm, the rain drains away and the cursor
-// blinks again.
+// types again.
 //
 // The seed picks every stream's speed, length and gaps, which columns carry dot
 // tails, the katakana, the glitches, the side she walks in from and the side
@@ -29,6 +30,8 @@ const BACK = 58 // the rabbit runs back across from the far side
 const KNOCKS = [76, 84] as const
 const CURSOR = 12 // the cursor's column; the rain erupts from it
 const DRAINED = 98 // every stream has left the screen
+const WAKE = 'WAKE UP, NEO'
+const TYPE = LOOP - WAKE.length // the cursor types WAKE UP, NEO a character a frame to the loop's end
 const KANA = 'ｦｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ'
 
 // The rain's clock stops for 2 frames on each knock.
@@ -59,6 +62,7 @@ const FLARE = ['..S..', '..H..', '.HHH.', 'HDHDH']
 const SIT = ['....X.X', '....XXE', '.XXXXX.', '..X..X.']
 const TWITCH = ['.....XX', '....XXE', '.XXXXX.', '..X..X.']
 const RUN = ['....X.X', '...XXXE', 'XXXXXX.', '......X']
+const TUCK = ['....X.X', '...XXXE', '.XXXXX.', '..XX...']
 
 type Pixel = [number, number, Ink]
 
@@ -82,13 +86,14 @@ function womanAt(f: number): number | null {
 
 // The rabbit's left column and pose at frame f (running right; mirrored for
 // the left), or null. It sits at the center, dashes off at the prototype's 2
-// columns a frame, then runs back across the whole width. It never bobs: a
-// bob would flip its cells between full and half blocks.
+// columns a frame, then runs back across the whole width with a running gait
+// from its fourth frame (sooner adds too many rising cells to the 16-column
+// crop). It never bobs: a bob would flip its cells between full and half blocks.
 function rabbitAt(f: number): { x: number; rows: readonly string[] } | null {
   if (f < RABBIT) return null
   if (f < RABBIT + 8) return { x: 13, rows: (f >> 2) & 1 ? TWITCH : SIT }
   const x = f < BACK ? 13 + 2 * (f - RABBIT - 8) : -7 + 2 * (f - BACK)
-  return x > 32 ? null : { x, rows: RUN }
+  return x > 32 ? null : { x, rows: f > RABBIT + 10 && (f >> 1) & 1 ? TUCK : RUN }
 }
 
 function draw(c: Canvas, f: number, seed: number) {
@@ -97,8 +102,9 @@ function draw(c: Canvas, f: number, seed: number) {
   const tau = clock(f)
   const pix: Pixel[] = []
 
-  // The cursor, before the eruption.
-  if ((f >= 98 && f < 102) || f >= 104) pix.push([CURSOR, 0, 'cool'], [CURSOR, 1, 'cool'])
+  // The cursor types WAKE UP, NEO before the eruption, blinking once.
+  const typed = Math.max(0, f - TYPE + 1)
+  if ((f >= TYPE && f < DRAINED + 4) || f >= DRAINED + 6) pix.push([CURSOR + typed, 0, 'cool'], [CURSOR + typed, 1, 'cool'])
 
   // The Woman in the Red Dress.
   const herFace: 1 | -1 = noise(seed, 20) < 0.5 ? 1 : -1
@@ -162,7 +168,7 @@ function draw(c: Canvas, f: number, seed: number) {
         else if (y > bottom && y - bottom <= st.len) state[row] = Math.min(state[row]!, (y - bottom) / st.len)
       }
       for (let i = 1; i <= tail; i++) {
-        const dy = hy - i
+        const dy = hy >> 2 === 1 ? 4 - i : hy - i // behind a row-1 head, stacked at the foot of the cell above
         if (dy >= 0 && dy < 8 && dy >> 2 !== hy >> 2) dots.add(dy)
       }
     }
@@ -170,6 +176,10 @@ function draw(c: Canvas, f: number, seed: number) {
     for (const row of [0, 1]) {
       const cell = row * W + col
       if (held.has(cell)) continue
+      if (row === 0 && col >= CURSOR && col < CURSOR + typed) {
+        if (WAKE[col - CURSOR] !== ' ') c.glyph(col, row, WAKE[col - CURSOR]!, 'cool')
+        continue
+      }
       const d = Math.abs(col - herCenter)
       // The code goes still and red around her, wider at her peak; it holds
       // still around the rabbit too, so each stands out: 10 columns ahead of it
@@ -184,7 +194,7 @@ function draw(c: Canvas, f: number, seed: number) {
       // Depth inside the youngest disc holding the cell: 0 on its front.
       const depth = KNOCKS.map(k => f < 92 ? f - k + 0.5 - Math.abs(col - 15.5) : -1).filter(k => k >= 0).pop() ?? -1
       const slot = f + Math.floor(noise(seed, 10, col, row) * 16)
-      const glitch = look.has(cell) || (slot % 16 < 2 && !hush && depth < 0 && s > 1 && noise(seed, 11, col, row, slot >> 4) < p)
+      const glitch = look.has(cell) || (slot % 16 < 2 && !hush && depth < 0 && s > 1 && !(row === 0 && f >= TYPE && col >= CURSOR && col <= CURSOR + WAKE.length) && noise(seed, 11, col, row, slot >> 4) < p)
       let bg: Ink | null = null
       let ink: Ink | null = null
       let ch = kana(seed, 8, col, row, Math.floor((tau + noise(seed, 9, col, row) * 5) / (2 + Math.floor(noise(seed, 7, col, row) * 4))))
