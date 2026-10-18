@@ -102,26 +102,42 @@ function beatProblems(v: Variant): string[] {
 // A per-cell flash: a counted change is a step of 0.10 or more whose darker side
 // is under 0.80 and whose direction differs from the cell's previous change.
 // (The previous counted change always has the direction of the previous change.)
-// Returns the frame index ending the first 8-frame window with 5 or more, or -1.
-function cellFlash(frames: Float64Array[], cell: number): number {
+// Transition t enters frame t mod n, and the sequence wraps. Returns the frame
+// ending the first 8-frame window (7 transitions) with 5 or more, or -1. With
+// `cross`, only windows holding transition `cross` are measured.
+function cellFlash(frames: Float64Array[], cell: number, cross?: number): number {
   const n = frames.length
+  const lum = (t: number) => frames[((t % n) + n) % n]![cell]!
   const dir = (t: number) => {
-    const a = frames[(t - 1) % n]![cell]!, b = frames[t % n]![cell]!
+    const a = lum(t - 1), b = lum(t)
     return Math.abs(b - a) >= STEP && Math.min(a, b) < 0.8 ? Math.sign(b - a) : 0
   }
-  // The sequence wraps, so the change before frame 1 is the cycle's last change.
+  const from = cross === undefined ? 1 : cross - 6
+  const dirs = Array.from({ length: cross === undefined ? n + 6 : 13 }, (_, i) => dir(from + i))
+  if (dirs.filter(d => d !== 0).length < 5) return -1
   let last = 0
-  for (let t = 1; t <= n; t++) last = dir(t) || last
-  const counted = new Uint8Array(n + 7)
+  for (let t = from - 1; t > from - 1 - n && !last; t--) last = dir(t)
+  const counted = new Uint8Array(dirs.length)
   let inWindow = 0
-  for (let t = 1; t < n + 7; t++) {
-    const d = dir(t)
-    counted[t] = d !== 0 && d !== last ? 1 : 0
+  for (let i = 0; i < dirs.length; i++) {
+    const d = dirs[i]!
+    counted[i] = d !== 0 && d !== last ? 1 : 0
     if (d) last = d
-    inWindow += counted[t]! - (t > 7 ? counted[t - 7]! : 0)
-    if (inWindow >= 5) return t % n
+    inWindow += counted[i]! - (i >= 7 ? counted[i - 7]! : 0)
+    if (i >= 6 && inWindow >= 5) return (from + i) % n
   }
   return -1
+}
+
+// The frames of a loop where more than `limit` cells each rise by 0.10 or more;
+// frame 0 is compared with `before`, the frame played ahead of the loop.
+function risingFrames(before: Float64Array, frames: Float64Array[], limit: number): number[] {
+  const rises = (a: Float64Array, b: Float64Array) => {
+    let up = 0
+    for (let c = 0; c < b.length; c++) if (b[c]! - a[c]! >= STEP && ++up > limit) return true
+    return false
+  }
+  return frames.flatMap((now, f) => rises(f ? frames[f - 1]! : before, now) ? [f] : [])
 }
 
 export function checkReel(reel: Reel): Finding[] {
@@ -218,43 +234,51 @@ export function checkReel(reel: Reel): Finding[] {
     }
   }
 
-  // Flash: each variant's three seeds back to back, wrapping, and each pair of
-  // variants as A's three seeds then B's, wrapping, which measures A to B and B to A.
+  // Flash: each variant's three seeds back to back, wrapping, then every
+  // junction playback can make: variant A on seed s followed by variant B on seed
+  // t, for every ordered pair (A, B), self pairs included, and every seed pair.
+  // A junction reports only windows that cross it, and a loop's rising frames
+  // only when its first frame, the one after the junction, is one of them.
+  const last = (frames: Float64Array[]) => frames[frames.length - 1]!
   for (const theme of THEME_NAMES) {
     for (const form of FORMS) {
-      for (let i = 0; i < playable.length; i++) {
-        for (let j = i; j < playable.length; j++) {
-          const names = i === j ? [playable[i]![0]] : [playable[i]![0], playable[j]![0]]
-          const blocks = names.flatMap(name => SEEDS.map(seed => ({ name, seed, frames: lit(name, seed, form, theme) })))
-          const frames = blocks.flatMap(b => b.frames)
-          const locate = (k: number) => {
-            for (const b of blocks) {
-              if (k < b.frames.length) return `variant ${b.name}, seed ${b.seed}, form ${form}, theme ${theme}, frame ${k}`
-              k -= b.frames.length
+      const limit = form === 32 ? 16 : 8
+      const place = (name: string, seed: number, frame: number) => `variant ${name}, seed ${seed}, form ${form}, theme ${theme}, frame ${frame}`
+      const cellAt = (cell: number) => `cell ${cell % form},${Math.floor(cell / form)}`
+      for (const [name, v] of playable) {
+        const loops = SEEDS.map(seed => lit(name, seed, form, theme))
+        const frames = loops.flat()
+        for (let cell = 0; cell < frames[0]!.length; cell++) {
+          const k = cellFlash(frames, cell)
+          if (k < 0) continue
+          add('flash', `${place(name, SEEDS[Math.floor(k / v.loop)]!, k % v.loop)}, ${cellAt(cell)}: 5 or more counted changes in 8 frames`)
+          break
+        }
+        if (legacy) continue
+        loops.forEach((frames, i) => {
+          const rising = risingFrames(last(loops[(i + loops.length - 1) % loops.length]!), frames, limit)
+          if (rising.length > 1) add('flash', `${place(name, SEEDS[i]!, rising[0]!)}: frames ${rising.join(', ')} each have more than ${limit} cells rising by 0.10 or more`)
+        })
+      }
+      for (const [a] of playable) {
+        for (const [b] of playable) {
+          for (const s of SEEDS) {
+            for (const t of SEEDS) {
+              const ahead = lit(a, s, form, theme), next = lit(b, t, form, theme)
+              const after = ` (after variant ${a} seed ${s})`
+              // B first, so the junction A to B is the wrap: transition frames.length enters B's frame 0.
+              const frames = [...next, ...ahead]
+              for (let cell = 0; cell < frames[0]!.length; cell++) {
+                const k = cellFlash(frames, cell, frames.length)
+                if (k < 0) continue
+                add('flash', `${place(b, t, k)}, ${cellAt(cell)}: 5 or more counted changes in 8 frames${after}`)
+                break
+              }
+              if (legacy) continue
+              if (!risingFrames(last(ahead), [next[0]!], limit).length) continue
+              const rising = risingFrames(last(ahead), next, limit)
+              if (rising.length > 1) add('flash', `${place(b, t, 0)}: frames ${rising.join(', ')} each have more than ${limit} cells rising by 0.10 or more${after}`)
             }
-            return ''
-          }
-          const order = i === j ? '' : ` (playing ${names.join(' and ')} in turn)`
-          const width = frames[0]!.length
-          for (let cell = 0; cell < width; cell++) {
-            const k = cellFlash(frames, cell)
-            if (k >= 0) {
-              add('flash', `${locate(k)}, cell ${cell % form},${Math.floor(cell / form)}: 5 or more counted changes in 8 frames${order}`)
-              break
-            }
-          }
-          if (legacy) continue
-          const limit = form === 32 ? 16 : 8
-          let k = 0
-          for (const b of blocks) {
-            const rising: number[] = []
-            for (let f = 0; f < b.frames.length; f++, k++) {
-              const now = frames[k]!, before = frames[(k - 1 + frames.length) % frames.length]!
-              let up = 0
-              for (let cell = 0; cell < width; cell++) if (now[cell]! - before[cell]! >= STEP) up++
-              if (up > limit) rising.push(f)
-            }
-            if (rising.length > 1) add('flash', `variant ${b.name}, seed ${b.seed}, form ${form}, theme ${theme}, frames ${rising.join(', ')}: more than ${limit} cells rise by 0.10 or more, in more than one frame of the loop${order}`)
           }
         }
       }

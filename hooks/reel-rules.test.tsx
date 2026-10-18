@@ -159,6 +159,25 @@ test('a three-variant reel whose skipped pair flashes is a flash finding', () =>
   expect(rules(cast({ ends, still, opens }))).toEqual(['flash'])
 })
 
+test('a variant change that flashes on one seed pair only is a flash finding', () => {
+  // Only `ends` on seed 2 into `opens` on seed 1 flashes; seed 3 into seed 1 does not.
+  const late: Draw = (c, frame, seed, variant) => { if (seed === 2) ends(c, frame, seed, variant) }
+  const early: Draw = (c, frame, seed, variant) => { if (seed === 1) opens(c, frame, seed, variant) }
+  expect(checkReel(cast({ late }))).toEqual([])
+  expect(checkReel(cast({ early }))).toEqual([])
+  const found = checkReel(cast({ late, early }))
+  expect([...new Set(found.map(f => f.rule))]).toEqual(['flash'])
+  expect(found.every(f => f.detail.includes('variant early, seed 1') && f.detail.includes('after variant late seed 2'))).toBe(true)
+})
+
+test('a flash inside one variant is not reported again for its variant changes', () => {
+  // Mid-loop blinking: no 8-frame window that crosses a variant change holds it.
+  const blink: Draw = (c, frame) => { if (frame >= 30 && frame < 40 && frame % 2) c.bg(22, 0, 'spark') }
+  const alone = checkReel(cast({ blink }))
+  expect(alone.length).toBeGreaterThan(0)
+  expect(checkReel(cast({ blink, still: () => {} }))).toEqual(alone)
+})
+
 test('a 29-character catchphrase is a phrases finding', () => {
   const variant = { loop: 72, beats: [{ at: 4, phrase: 'A'.repeat(29) }, { at: 40, phrase: 'NOW' }] }
   expect(rules(loop(variant))).toEqual(['phrases'])
