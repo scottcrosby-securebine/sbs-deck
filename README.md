@@ -175,5 +175,5 @@ The live checks this host can run passed in tmux in October 2026: both themes at
 `/clear`, the missing-index toast and `auto` in use. Over a herdr remote link
 the new line costs no more than the old one: the ssh send rate stayed within
 its own background swing (29 to 70 KB/s for both), and typing felt the same.
-The owner's checks still pending: the eight named terminals, the desktop app,
-a light terminal and the twelve-reel review.
+The owner's checks still pending: the desktop app, a light terminal and the
+twelve-reel review.
