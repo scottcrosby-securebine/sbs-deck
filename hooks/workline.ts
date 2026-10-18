@@ -16,7 +16,8 @@ const WIDE: readonly (readonly [number, number])[] = [
   [0x1fa70, 0x1faff], [0x20000, 0x3fffd],
 ]
 const ZERO = /\p{Mn}|\p{Me}/u
-const EMOJI = /\p{Emoji_Presentation}/u
+// Regional indicators are excluded: a flag pair is two of them in two columns.
+const EMOJI = /(?![\u{1F1E6}-\u{1F1FF}])\p{Emoji_Presentation}/u
 
 function charColumns(char: string): number {
   const code = char.codePointAt(0)!

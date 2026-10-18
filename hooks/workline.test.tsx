@@ -109,6 +109,7 @@ test('a catchphrase run is bold in the phrase role', () => {
 
 test('emoji count two columns and the rows still fill the plate', () => {
   expect(columnsOf('✅')).toBe(2)
+  expect(columnsOf('🇯🇵')).toBe(2)
   const rows = layoutLine({ theme: 'securebine', tier: 'full', columns: 80, art: ART32,
     words: '✅ ⚡ ⭐ 🇯🇵 done', isCatchphrase: false, readout: '3s' })
   expect(rows.map(width)).toEqual([80, 80])
