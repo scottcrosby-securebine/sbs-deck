@@ -4,12 +4,12 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import { artRuns, drawFrame } from './canvas'
 import type { Run } from './canvas'
 import { cleanLine, colorLine } from './color'
-import { LEGACY_REELS, reelNamed } from './library'
+import { LEGACY_REELS, NEW_REELS, reelNamed, unindexedLines } from './library'
 import { nextVariant } from './picker'
 import type { Context } from './picker'
 import { endStep, newTurn, readoutText, withEffort } from './readout'
 import type { TurnStats } from './readout'
-import { ANIMATIONS, AUTO, animationFor, decrypt, phraseFor } from './spinner'
+import { AUTO, animationFor, decrypt, phraseFor } from './spinner'
 import type { SpinnerMode } from './spinner'
 import { ROLES } from './theme'
 import type { Role, ThemeName } from './theme'
@@ -241,7 +241,7 @@ const SBS_USAGE = [
   '/sbs reset             styling on with its defaults: quiet on, color on',
   '/sbs quiet on | off    one-line tool rows with output hidden',
   '/sbs color on | off   pattern coloring of output (seen with quiet off)',
-  '/sbs anim [name]       the spinner animation; with no name, the next one',
+  '/sbs anim [name|next|auto|off|list]  the working line\'s reel',
   '/sbs name <name>       what the reply header calls the assistant; clear to undo',
   '/sbs status            what is on now',
 ].join('\n')
@@ -326,6 +326,8 @@ export const register: Register = on => {
   let isQuiet = true
   // Which animation follows the spinner's phrase.
   let animation = AUTO
+  // Reel files the index does not export yet, found at session start.
+  let unindexed: string[] = []
   // The running ticker, how far it has counted, and the count the spinner last
   // drew at; then how many phrases each state has drawn from its pool, started
   // at a random place so sessions differ.
@@ -401,7 +403,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'sbs',
-      description: 'SecureBine styling: on, off, normal, reset, quiet on|off, color on|off, anim [name], name <name>, status',
+      description: 'SecureBine styling: on, off, normal, reset, quiet on|off, color on|off, anim [name|next|auto|off|list], name <name>, status',
     })
     await $.command.register({
       name: 'sbs-color',
@@ -421,12 +423,25 @@ export const register: Register = on => {
 
     const savedAnimation = await $.store.get('animation')
 
-    if (typeof savedAnimation === 'string' && (savedAnimation === AUTO || Object.hasOwn(ANIMATIONS, savedAnimation))) {
+    if (typeof savedAnimation === 'string' && (savedAnimation === AUTO || savedAnimation === 'off' || reelNamed(savedAnimation))) {
       animation = savedAnimation
     }
 
     // A change of animation starts every spinner afresh.
     plays.clear()
+
+    unindexed = []
+
+    try {
+      const listing = await $.fs.list(`${$.plugin.root}/hooks/reels`)
+      unindexed = unindexedLines(listing.filter(entry => entry.kind === 'file').map(entry => entry.name))
+
+      if (unindexed.length > 0) {
+        $.ui.toast(`sbs-deck: add to hooks/reels/index.ts: ${unindexed[0]}${unindexed.length > 1 ? ` (and ${unindexed.length - 1} more: /sbs anim list)` : ''}`)
+      }
+    } catch {
+      unindexed = []
+    }
 
     const savedOpeners = await $.store.get('turnOpeners')
 
@@ -479,30 +494,32 @@ export const register: Register = on => {
     }
 
     if (what === 'anim' || what === 'ani' || what === 'animation') {
-      const all = [AUTO, ...Object.keys(ANIMATIONS)]
-      const names = all.join(', ')
-
-      // With no name, move on to the next one, so repeating the command
-      // steps through them all.
-      if (how === '' || how === 'next') {
-        animation = all[(all.indexOf(animation) + 1) % all.length] ?? AUTO
-        plays.clear()
-        await $.store.set('animation', animation)
-
-        return {
-          text: `Spinner animation is now ${animation}. Repeat /sbs anim for the next, or name one: ${names}.`,
-        }
-      }
+      const listText = () =>
+        `Spinner animation is ${animation}. Choose from: auto, off, ` +
+        [...NEW_REELS.map(r => (r.rare ? `${r.name} (rare)` : r.name)), ...LEGACY_REELS.map(r => `${r.name} (legacy)`)].join(', ') +
+        '.' +
+        (unindexed.length > 0 ? `\nNot in hooks/reels/index.ts yet. Add:\n${unindexed.join('\n')}` : '')
 
       if (how === 'list') {
-        return { text: `Spinner animation is ${animation}. Choose from: ${names}.` }
+        return { text: listText() }
       }
 
-      if (!all.includes(how)) {
-        return { text: `No animation called "${how}". Choose from: ${names}.` }
+      let wanted = how
+
+      // With no name, step to the next new reel, skipping the rare ones.
+      if (how === '' || how === 'next') {
+        const steps = NEW_REELS.filter(r => !r.rare)
+
+        if (steps.length === 0) {
+          return { text: 'No new reels yet.' }
+        }
+
+        wanted = steps[(steps.findIndex(r => r.name === animation) + 1) % steps.length]!.name
+      } else if (how !== AUTO && how !== 'off' && !reelNamed(how)) {
+        return { text: `No animation called "${how}".\n${listText()}` }
       }
 
-      animation = how
+      animation = wanted
       plays.clear()
       await $.store.set('animation', animation)
 
@@ -931,7 +948,7 @@ export const register: Register = on => {
       })
     }
 
-    const tier = tierFor(e.surface, e.viewport, false)
+    const tier = tierFor(e.surface, e.viewport, animation === 'off')
     let shown = phrasesShown.get(instance)
 
     if (shown?.mode !== e.props.mode) {
@@ -983,7 +1000,7 @@ export const register: Register = on => {
       message: e.props.message,
       word: e.props.word,
       surface: e.surface,
-      phrase: decrypt(phrase, age, Math.floor(now / TICK_MS)),
+      phrase: animation === 'off' ? phrase : decrypt(phrase, age, Math.floor(now / TICK_MS)),
       catchphrase,
     })
     const loop = loopKeyOf(e.requestId, stats)

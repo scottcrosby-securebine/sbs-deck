@@ -2,6 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, TestBody } from 'claude-code/testing'
 
 import { colorLine } from './color'
+import { NEW_REELS } from './library'
 import { HALF_RATE } from './reels/legacy'
 import { ANIMATIONS, AUTO, SPINNER_PHRASES, animationFor, decrypt, phraseFor, scanBar } from './spinner'
 
@@ -654,7 +655,7 @@ test('every animation draws a fixed-width strip that moves', () => {
   }
 })
 
-test('/sbs anim picks the spinner animation and refuses an unknown one', async ($, on) => {
+test('/sbs anim refuses an unknown name and takes a name in all three spellings', async ($, on) => {
   mock.store(on)
   mock.clock(on)
   const sbs = async (args: string) =>
@@ -668,10 +669,10 @@ test('/sbs anim picks the spinner animation and refuses an unknown one', async (
     )
 
   expect(await sbs('anim list')).toContain('Spinner animation is auto')
-  expect(await sbs('anim')).toContain('Spinner animation is now bar')
-  expect(await sbs('ani')).toContain('Spinner animation is now wave')
   expect(await sbs('anim sideways')).toContain('No animation called')
-  expect(await sbs('anim wave')).toContain('Spinner animation is wave')
+  expect(await sbs('anim list')).toContain('Spinner animation is auto')
+  expect(await sbs('ani wave')).toContain('Spinner animation is wave')
+  expect(await sbs('animation list')).toContain('Spinner animation is wave')
 
   const ui = await $.ui.mount({
     plugin: 'sbs-deck',
@@ -763,7 +764,7 @@ test('the animations hold up at the frame numbers a real clock gives', () => {
   expect(blank.length).toBeLessThan(3)
 })
 
-test('a stored animation name is restored only when it names an animation', async ($, on) => {
+test('a stored animation name is restored only when it names a reel', async ($, on) => {
   mock.clock(on)
   mock.env(on, { USER: 'tester' })
   const stored: Record<string, unknown> = { animation: 'constructor' }
@@ -1816,5 +1817,108 @@ test('an instance not drawn for 10 minutes is dropped at the next main turn', as
   await $.turn.start({ text: 'go', turnId: 't2' })
   ui = await agent()
   expect(SPINNER_PHRASES.thinking).not.toContain((await drawnLine(ui)).words)
+  await ui.unmount()
+})
+
+const fakeStore = (on: Parameters<TestBody>[1]) => {
+  const stored: Record<string, unknown> = {}
+  on('store.get', ($, e) => ({ value: stored[e.key] }))
+  on('store.set', ($, e) => {
+    stored[e.key] = e.value
+
+    return { value: undefined }
+  })
+
+  return stored
+}
+
+test('/sbs anim with a name, auto, off and list', async ($, on) => {
+  const stored = fakeStore(on)
+  mock.clock(on)
+  const run = async (args: string) => JSON.stringify(await sbsCommand($, args))
+
+  expect(await run('anim cylon')).toContain('Spinner animation is cylon.')
+  expect(stored.animation).toBe('cylon')
+  expect(await run('anim off')).toContain('Spinner animation is off.')
+  expect(stored.animation).toBe('off')
+  expect(await run('anim auto')).toContain('Spinner animation is auto.')
+  expect(stored.animation).toBe('auto')
+  const list = await run('anim list')
+  expect(list).toContain('Spinner animation is auto.')
+  expect(list).toContain('auto, off')
+  expect(list).toContain('cylon (legacy)')
+})
+
+test('/sbs anim next steps to the first new reel that is not rare', async ($, on) => {
+  const stored = fakeStore(on)
+  mock.clock(on)
+  await sbsCommand($, 'anim cylon')
+  const reply = JSON.stringify(await sbsCommand($, 'anim next'))
+  const first = NEW_REELS.find(r => !r.rare)?.name
+
+  if (first === undefined) {
+    expect(reply).toContain('No new reels yet.')
+    expect(stored.animation).toBe('cylon')
+  } else {
+    expect(stored.animation).toBe(first)
+  }
+})
+
+test('list names a reel file missing from the index, and session start toasts it', async ($, on) => {
+  mock.store(on)
+  mock.clock(on)
+  mock.env(on, { USER: 'tester' })
+  const line = "export { default as newone } from './newone'"
+  const toasts: string[] = []
+  let asked = ''
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('fs.list', ($, e) => {
+    asked = e.path
+
+    return { value: [{ name: 'newone.ts', kind: 'file', size: 1, mtimeMs: 0, isLink: false }] }
+  })
+  on('ui.toast', ($, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(asked).toEndWith('/hooks/reels')
+  expect(toasts.join('\n')).toContain(line)
+  expect(JSON.stringify(await sbsCommand($, 'anim list'))).toContain(line)
+})
+
+test('anim off draws the one-row form with no scramble', { timeoutMs: 30_000 }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  await sbsCommand($, 'anim off')
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  const seen = new Set<string>()
+
+  for (let tick = 0; tick < 30; tick += 1) {
+    const { words } = await drawnLine(ui)
+    seen.add(words)
+    expect(await ui.find({ key: 'art0' })).toBeUndefined()
+    await clock.advance(125)
+  }
+
+  expect(seen.size).toBe(1)
+  expect(SPINNER_PHRASES.thinking).toContain([...seen][0])
+  await ui.unmount()
+})
+
+test('a pin typed mid-reel takes effect on the next frame', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  await sbsCommand($, 'anim bar')
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  await clock.advance(1_000)
+  await sbsCommand($, 'anim cylon')
+  await clock.advance(125)
+  const outer = (await ui.findAll({ type: 'Box' })).find(b => b.key?.startsWith('reel:'))
+  expect(outer?.key).toBe('reel:cylon:strip')
+  expect((await drawnLine(ui)).art).toStartWith(ANIMATIONS.cylon!(0))
   await ui.unmount()
 })
