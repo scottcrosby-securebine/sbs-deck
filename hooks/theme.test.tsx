@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { colorLine } from './color'
 import { isPhrase } from './reel-rules'
 import { NIGHT_CITY_PHRASES, SPINNER_PHRASES } from './spinner'
-import { CUT_CORNER_TERMINALS, ROLES, THEME_NAMES, contrast, cutsCorners, to256 } from './theme'
+import { ROLES, THEME_NAMES, contrast, to256 } from './theme'
 import type { Role, ThemeName } from './theme'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -46,19 +46,6 @@ test('dark red is never a text color', () => {
 test('output coloring takes its colors from the theme', () => {
   expect(colorLine('link down', 'nightcity')[1]?.style).toEqual({ color: '#F3E600', backgroundColor: '#C5003C', bold: true })
   expect(colorLine('link down')[1]?.style).toEqual({ color: '#FF5555', bold: true })
-})
-
-test('cutsCorners reads TMUX first, then the terminal\'s own variable, then TERM', () => {
-  expect(cutsCorners({ WT_SESSION: '1', TERM: 'xterm' }, ['windows-terminal'])).toBe(true)
-  expect(cutsCorners({ TMUX: '/tmp/t', WT_SESSION: '1', TERM: 'xterm' }, ['windows-terminal'])).toBe(false)
-  expect(cutsCorners({ TERM_PROGRAM: 'iTerm.app', WT_SESSION: '1' }, ['windows-terminal'])).toBe(false)
-  expect(cutsCorners({ TERM_PROGRAM: 'iTerm.app' }, ['iTerm.app'])).toBe(true)
-  expect(cutsCorners({ KITTY_WINDOW_ID: '3', TERM: 'xterm-kitty' }, ['kitty'])).toBe(true)
-  expect(cutsCorners({ ALACRITTY_WINDOW_ID: '1', TERM: 'xterm-256color' }, ['xterm-256color'])).toBe(false)
-  expect(cutsCorners({ ALACRITTY_WINDOW_ID: '1' }, ['alacritty'])).toBe(true)
-  expect(cutsCorners({ TERM: 'xterm-256color' }, ['xterm-256color'])).toBe(true)
-  expect(cutsCorners({}, ['xterm-256color'])).toBe(false)
-  expect(cutsCorners({ TERM: 'xterm-256color' })).toBe(CUT_CORNER_TERMINALS.includes('xterm-256color'))
 })
 
 test('every Night City phrase passes the phrase rules and duplicates nothing', () => {

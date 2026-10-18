@@ -121,13 +121,6 @@ The last command must print nothing: no color value is written outside
   `.claude-plugin/plugin.json`. The mod toasts either line at session start if
   it is missing, and `/sbs anim list` prints it. A reel with no field plays as
   if switched on.
-- Night City's message box cuts its corners only on terminals that have been
-  checked to line them up, and the list of those is not filled in yet, so it
-  draws square corners everywhere. To try them on a terminal, start Claude Code
-  with `SBS_CUT_CORNERS` set to the terminal's name: its `TERM_PROGRAM` if
-  set, else `windows-terminal`, `kitty` or `alacritty` for those terminals,
-  else its `TERM`. Several names go in a comma list with no spaces
-  (`SBS_CUT_CORNERS=kitty,WezTerm`). Corners are never cut inside tmux.
 
 - The label shows the email of the account signed in to Claude Code, read
   from `.claude.json` (the record the status line uses) each time you send a
@@ -168,7 +161,7 @@ in October 2026 by independent reviewers, one of them a different model
 family. Every blocking finding was fixed, each code fix with a test that
 fails without it, or, by the owner's ruling, is listed under Known limits.
 The Night City theme, the two-row working line with its readout and the
-twelve reels are not yet reviewed. The test suite passes, 252 tests, on Claude
+twelve reels are not yet reviewed. The test suite passes, 249 tests, on Claude
 Code 2.1.302.
 The live checks this host can run passed in tmux in October 2026: both themes at
 80, 60 and 40 columns, 256 colors, a subagent turn and a reload, `/sbs anim off`,

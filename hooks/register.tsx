@@ -11,7 +11,7 @@ import { endStep, newTurn, readoutText, withEffort } from './readout'
 import type { TurnStats } from './readout'
 import { AUTO, decrypt, phraseFor } from './spinner'
 import type { PhraseSource, SpinnerMode } from './spinner'
-import { CUT_CORNER_TERMINALS, ROLES, THEME_NAMES, cutsCorners } from './theme'
+import { ROLES, THEME_NAMES } from './theme'
 import type { Role, ThemeName } from './theme'
 import { layoutLine, rowOneText, tierFor } from './workline'
 
@@ -331,9 +331,6 @@ export const register: Register = (on, options) => {
   let theme: ThemeName = 'securebine'
   const paint = (role: Role) => ROLES[theme][role]
   const isTheme = (name: unknown): name is ThemeName => THEME_NAMES.includes(name as ThemeName)
-  // Whether this terminal's font lines up Night City's cut corners, read at
-  // session start.
-  let isCutCorner = false
   // Quiet: each tool call is one line saying what it is for, and its output is
   // not drawn unless it failed.
   let isQuiet = true
@@ -471,15 +468,6 @@ export const register: Register = (on, options) => {
     if (isTheme(savedTheme)) {
       theme = savedTheme
     }
-
-    isCutCorner = cutsCorners({
-      TMUX: await $.env.get('TMUX'),
-      TERM_PROGRAM: await $.env.get('TERM_PROGRAM'),
-      TERM: await $.env.get('TERM'),
-      WT_SESSION: await $.env.get('WT_SESSION'),
-      KITTY_WINDOW_ID: await $.env.get('KITTY_WINDOW_ID'),
-      ALACRITTY_WINDOW_ID: await $.env.get('ALACRITTY_WINDOW_ID'),
-    }, [...CUT_CORNER_TERMINALS, ...(await $.env.get('SBS_CUT_CORNERS') ?? '').split(',')])
 
     const savedAnimation = await $.store.get('animation')
 
@@ -912,7 +900,7 @@ export const register: Register = (on, options) => {
     const label = paint(isWaiting ? 'queued' : 'label')
     const frame = paint(isWaiting ? 'queuedFrame' : 'frame').color
 
-    const box = (
+    return (
       <Box flexDirection="column" borderStyle="single" borderColor={frame} paddingX={1}>
         <Box flexDirection="row">
           <Text color={label.color} backgroundColor={label.backgroundColor}>
@@ -926,25 +914,6 @@ export const register: Register = (on, options) => {
         {/* The engine's row opens with a blank line; the eyebrow takes it. */}
         <Box flexDirection="column" marginTop={-1}>
           {inner}
-        </Box>
-      </Box>
-    )
-
-    if (theme !== 'nightcity' || !isCutCorner || e.surface !== 'terminal') {
-      return box
-    }
-
-    // Night City cuts the top-left and bottom-right corners: overlays drawn
-    // after the border, one placed on the corner, one pulled up onto the last
-    // row. A live check showed both land and the sides stay whole.
-    return (
-      <Box flexDirection="column">
-        {box}
-        <Box key="cut-tl" position="absolute" top={0} left={0}>
-          <Text color={frame}>╱</Text>
-        </Box>
-        <Box key="cut-br" marginTop={-1} alignSelf="flex-end">
-          <Text color={frame}>╱</Text>
         </Box>
       </Box>
     )

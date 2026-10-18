@@ -9,7 +9,6 @@ import { contextOf, holdEnd, poolOf } from './picker'
 import type { Context, Entry } from './picker'
 import { HALF_RATE } from './reels/legacy'
 import { ANIMATIONS, NIGHT_CITY_PHRASES, SPINNER_PHRASES, decrypt, phraseFor, scanBar } from './spinner'
-import { CUT_CORNER_TERMINALS } from './theme'
 import type { SpinnerMode } from './spinner'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -2180,67 +2179,6 @@ test('in Night City row 1 keeps the mode pool at 59 columns', { timeoutMs: 30_00
 
 test('in Night City row 1 keeps the mode pool with anim off', { timeoutMs: 30_000 }, async ($, on) => {
   for (const phrase of await resolvedPhrases($, on, ['theme nightcity', 'anim off'], WIDE)) expect(SPINNER_PHRASES.thinking).toContain(phrase)
-})
-
-test('Night City boxes stay square on an unchecked terminal', async ($, on) => {
-  mock.store(on)
-  engineUserMessage(on)
-  let variables: Record<string, string> = {}
-  on('env.get', ($, e) => ({ value: variables[e.name] }))
-  on('session.start', ($, e) => ({ cwd: e.cwd }))
-  on('command.register', ($, e) => ({ value: { command: e.name } }))
-  await sbsCommand($, 'theme nightcity')
-  const cases: [string, Record<string, string>, 'terminal' | 'desktop'][] = [
-    ['unchecked terminal', { TERM_PROGRAM: 'sbs-test-unchecked-terminal' }, 'terminal'],
-    ['tmux', { TMUX: '/tmp/tmux-1/default,1,0', TERM_PROGRAM: 'sbs-test-unchecked-terminal' }, 'terminal'],
-    ['no variables', {}, 'terminal'],
-    ['desktop', { TERM_PROGRAM: 'sbs-test-unchecked-terminal' }, 'desktop'],
-  ]
-
-  for (const [name, env, surface] of cases) {
-    variables = env
-    await $.session.start({ cwd: '/', surface, isInteractive: true })
-    const ui = await $.ui.mount({
-      plugin: 'sbs-deck',
-      surface,
-      component: 'UserMessage',
-      props: { text: 'hello there', origin: { kind: 'composer' }, isExpanded: false },
-    })
-    expect(await ui.find({ type: 'Text', text: 'OPERATOR' }), name).toBeDefined()
-    expect(await ui.find({ key: 'cut-tl' }), name).toBeUndefined()
-    expect(await ui.find({ key: 'cut-br' }), name).toBeUndefined()
-    await ui.unmount()
-  }
-})
-
-test('Night City boxes cut their corners on a checked terminal, and not in the desktop app', async ($, on) => {
-  // The shipped list is empty until terminals are checked: SBS_CUT_CORNERS counts a test name as checked.
-  expect(CUT_CORNER_TERMINALS).not.toContain('sbs-test-checked-terminal')
-  const variables: Record<string, string> = { TERM_PROGRAM: 'sbs-test-checked-terminal', SBS_CUT_CORNERS: 'sbs-test-other,sbs-test-checked-terminal' }
-  mock.store(on)
-  engineUserMessage(on)
-  on('env.get', ($, e) => ({ value: variables[e.name] }))
-  on('session.start', ($, e) => ({ cwd: e.cwd }))
-  on('command.register', ($, e) => ({ value: { command: e.name } }))
-  await sbsCommand($, 'theme nightcity')
-  for (const [surface, cut] of [['terminal', true], ['desktop', false]] as const) {
-    await $.session.start({ cwd: '/', surface, isInteractive: true })
-    const ui = await $.ui.mount({
-      plugin: 'sbs-deck',
-      surface,
-      component: 'UserMessage',
-      props: { text: 'hello there', origin: { kind: 'composer' }, isExpanded: false },
-    })
-    expect(await ui.find({ type: 'Text', text: 'OPERATOR' }), surface).toBeDefined()
-    if (cut) {
-      expect(await ui.find({ key: 'cut-tl' }), surface).toBeDefined()
-      expect(await ui.find({ key: 'cut-br' }), surface).toBeDefined()
-    } else {
-      expect(await ui.find({ key: 'cut-tl' }), surface).toBeUndefined()
-      expect(await ui.find({ key: 'cut-br' }), surface).toBeUndefined()
-    }
-    await ui.unmount()
-  }
 })
 
 // The picker in auto. No test here but the rare one runs a main
