@@ -17,9 +17,11 @@ import { noise } from '../canvas'
 // it charges off the other side while the blight fades.
 //
 // Two kodama peek out of the floor, rattling, and duck as the Forest Spirit
-// nears. SHISHIGAMI WALKS: the Forest Spirit, an aqua deer with a red face and a
-// yellow crown of antlers, walks across. Where its hooves fall, flowers spring
-// up, bloom, then wilt red and wither to nothing behind it.
+// nears. The Forest Spirit, an aqua deer with a red face and a yellow crown of
+// antlers, walks in. Where its hooves fall, flowers spring up, bloom, then wilt
+// red and wither to nothing behind it. SHISHIGAMI WALKS: it halts mid-stride
+// at the middle and a ring of flowers bursts open around its hooves, then it
+// walks on and the ring withers.
 //
 // The seed picks how many kodama rise (4 to 6), where, when and how they fall
 // out of step; the demon's side, where it halts, its worms and its lashes; and
@@ -33,10 +35,12 @@ const CHARGE = 38 // the demon enters
 const CURSE = 48 // TATARIGAMI: it halts, the eye opens, the lashes fly
 const LEAVE = 60 // it charges off
 const PEEK = 67 // two kodama peek out
-const WALK = 84 // SHISHIGAMI WALKS: the spirit at the middle
+const WALK = 84 // SHISHIGAMI WALKS: the spirit halts at the middle
+const HOLD = 8 // frames it stands there, mid-stride, while the ring blooms
 
 const KODAMA = ['.XX.', 'XXXX', 'X..X', '.XX.', '.XX.', 'XXXX', '.XX.', 'X..X']
-// The Forest Spirit facing right, 13 dots wide: antlers, head and snout, neck,\n// body, legs; the last row strides.
+// The Forest Spirit facing right, 13 dots wide: antlers, head and snout, neck,
+// body, legs; the last row strides.
 const DEER = [
   '.......X.X.X.',
   '........XXX..',
@@ -113,7 +117,7 @@ function kodama(c: Canvas, f: number, seed: number) {
   const byNear = [...slots].sort((a, b) => (side < 0 ? a - b : b - a))
   for (const slot of slots) {
     const i = order.indexOf(slot)
-    const rise = 1 + Math.round((i * 9) / (n - 1)) // frame it starts to rise
+    const rise = 1 + Math.round((i * 8) / (n - 1)) // frame it starts to rise
     const sink = SENSE + 2 + byNear.indexOf(slot) // frame it starts to sink
     const depth = f < rise ? 8 : f < sink ? Math.max(0, 8 - 2 * (f - rise + 1)) : Math.min(8, 2 * (f - sink + 1))
     if (depth >= 8) continue
@@ -139,7 +143,7 @@ function peek(c: Canvas, f: number, seed: number) {
   for (const slot of center) {
     const x = 2 * (4 * slot + 1)
     const rise = PEEK + Math.floor(noise(seed, 16, slot) * 3)
-    const sink = WALK + Math.floor((x - 44) / 3)
+    const sink = Math.min(WALK - 3, WALK + Math.floor((x - 44) / 3))
     const depth = f < rise ? 8 : f < sink ? Math.max(4, 8 - 2 * (f - rise + 1)) : Math.min(8, 4 + 2 * (f - sink + 1))
     if (depth >= 8) continue
     const pose = [-1, 0, 1, 0][((f + slot) >> 1) % 4]!
@@ -189,20 +193,41 @@ function demon(c: Canvas, f: number, seed: number, cx: number) {
   }
 }
 
-// The flower in a floor column: the frame it springs up, as the hind hoof
-// leaves the cell, or null if none grows there.
-function bloomAt(seed: number, col: number): number | null {
+// Where the Forest Spirit's left edge is, in dots: it halts at the middle
+// for HOLD frames and otherwise walks 3 dots a frame.
+const spiritX = (f: number) => 26 + 3 * (f < WALK ? f - WALK : Math.max(0, f - WALK - HOLD))
+
+// The ring that bursts open around its hooves while it stands: columns either
+// side of it, one more each way per frame.
+const RING = [9, 10, 11, 12, 20, 21, 22, 23]
+const ringAt = (col: number) => WALK + (col < 16 ? 12 - col : col - 20)
+
+// The flower in a floor column: the frame it springs up and the frame it
+// starts to wilt, or null if none grows there. A trail flower springs up as
+// the hind hoof leaves the cell; a ring flower stays open until it walks on.
+function bloomAt(seed: number, col: number): { at: number; wilt: number } | null {
+  const jitter = Math.floor(noise(seed, 21, col) * 2)
+  if (RING.includes(col)) return { at: ringAt(col), wilt: WALK + HOLD + jitter }
   if (noise(seed, 20, col) < 0.12) return null
-  return WALK + Math.ceil((2 * col - 25) / 3) + Math.floor(noise(seed, 21, col) * 2)
+  const trail = Math.ceil((2 * col - 25) / 3)
+  const at = WALK + trail + (trail > 0 ? HOLD : 0) + jitter
+  return { at, wilt: at + Math.floor(Math.min(12, LOOP - 1 - at) / 2) }
 }
 
 // Each flower is a dot stem on the floor row; a tall one opens its head in the
-// cell above. It sprouts, blooms, wilts red, droops and withers.
+// cell above. It sprouts, blooms, wilts red, droops and withers, in 12 frames,
+// or faster near the loop's end so every flower is gone by its last frame.
+// Cells the Forest Spirit stands in hide their flower.
 function blooms(c: Canvas, f: number, seed: number) {
+  const sx = spiritX(f)
   for (let col = 0; col < 32; col++) {
-    const at = bloomAt(seed, col)
-    if (at === null || f < at || f >= at + 12) continue
-    const a = f - at
+    const b = bloomAt(seed, col)
+    if (b === null || f < b.at) continue
+    if (sx > -13 && sx < 64 && col >= sx >> 1 && col <= (sx + 12) >> 1) continue
+    // Stages 0 to 5 grow and bloom, 6 to 11 wilt and wither.
+    const wither = Math.max(1, Math.min(6, LOOP - 1 - b.wilt))
+    const a = f < b.wilt ? Math.min(5, f - b.at) : 6 + Math.floor(((f - b.wilt) * 6) / wither)
+    if (a >= 12) continue
     const x = 2 * col + (noise(seed, 22, col) < 0.5 ? 0 : 1)
     const tall = noise(seed, 23, col) < 0.6
     const n = noise(seed, 24, col)
@@ -229,13 +254,13 @@ function blooms(c: Canvas, f: number, seed: number) {
 }
 
 function spirit(c: Canvas, f: number) {
-  const x0 = 26 + 3 * (f - WALK)
+  const x0 = spiritX(f)
   if (x0 <= -13 || x0 >= 64) return
   // A faint aqua aura around it.
   for (let col = (x0 >> 1); col <= (x0 + 12) >> 1; col++) for (const row of [0, 1]) if (col >= 0 && col < 32) c.bg(col, row, c.mix('cool', 'base', 0.75))
   const face = (r: number): Ink => (r < 2 ? 'spark' : r === 2 ? 'hot' : 'cool')
   sprite(c, DEER, x0, 0, face, 5)
-  sprite(c, [STRIDE[(f >> 1) % 2]!], x0, 7, () => 'cool', 5)
+  sprite(c, [STRIDE[f >= WALK && f < WALK + HOLD ? 0 : (f >> 1) % 2]!], x0, 7, () => 'cool', 5)
 }
 
 function draw(canvas: Canvas, f: number, seed: number) {
@@ -253,7 +278,7 @@ function draw(canvas: Canvas, f: number, seed: number) {
         const a = f - CURSE - Math.max(0, Math.abs(col - stop) - 5) / 2
         if (a >= 0) ink = a < 6 ? 'hot' : a < 9 ? c.mix('hot', 'deep', 0.5) : a < 12 ? 'deep' : a < 15 ? c.mix('deep', 'base', 0.25) : ink
       }
-      if (cx !== null && inBody(cx, col, row, dir)) ink = c.mix('deep', 'base', 0.5)
+      if (cx !== null && inBody(cx, col, row, dir)) ink = row === 1 ? 'base' : c.mix('deep', 'base', 0.5)
       if (cx !== null && f >= CURSE && f < LEAVE && row === 0 && Math.abs(col - Math.round(cx + 2 * dir)) === 1) ink = c.mix('hot', 'base', 0.5)
       if (ink) c.bg(col, row, ink)
     }
