@@ -4,8 +4,8 @@ import { noise } from '../canvas'
 // Together strong (Planet of the Apes). One variant, march, 108 frames, played
 // for subagents and Agent calls.
 //
-// Two ape forearms reach in from the edges, a thin stick (yellow, aqua or
-// dark yellow) between their fists. The fists push, the stick bows, and APE
+// Two ape forearms reach in from the edges, a thin yellow or aqua stick
+// between their fists. The fists push, the stick bows, and APE
 // ALONE WEAK: it snaps open at its break in a red shock, splinters burst out
 // in yellow and aqua rays, the fists jerk apart and the halves swing down and
 // drop away. A thick bundle of four aqua and yellow sticks spreads from the
@@ -70,7 +70,7 @@ const STATUE = [
 // the red fists; the seed stacks them in any of the 24 orders.
 const STICKS: readonly Ink[] = ['cool', 'spark', { from: 'cool', to: 'base', t: 0.5 }, { from: 'spark', to: 'base', t: 0.5 }]
 // The single stick's ink and each arm's fur tone, by seed.
-const STICK: readonly Ink[] = ['spark', 'cool', { from: 'spark', to: 'base', t: 0.25 }]
+const STICK: readonly Ink[] = ['spark', 'cool'] // close in luminance to the rays, so trading cells with them never flashes
 const FUR = [0.25, 0.5, 0.75] as const
 // The outer cords' columns, by seed; the middle cord is always 15-16.
 const CORDS = [[11, 20], [10, 21], [12, 19]] as const
@@ -80,7 +80,7 @@ function act(seed: number) {
   const order = [0, 1, 2, 3].sort((a, b) => noise(seed, 20, a) - noise(seed, 20, b))
   return {
     fur: [0, 1].map(side => FUR[Math.floor(noise(seed, 21, side) * 3)]!), // left arm, right arm
-    ink: STICK[Math.floor(noise(seed, 22) * 3)]!,
+    ink: STICK[Math.floor(noise(seed, 22) * 2)]!,
     brk: 31.5 + Math.floor(noise(seed, 23) * 5) - 2, // the break, in dots
     knots: [0, 1, 2].map(k => [18 + Math.floor(noise(seed, 24, k) * 28), 3 + Math.floor(noise(seed, 25, k) * 2)] as const),
     sticks: order.map(i => STICKS[i]!),
@@ -183,14 +183,16 @@ function stick(c: Canvas, f: number, seed: number) {
     const dy = sag * along + (fall * (fall + 1)) / 2
     for (const y of [3, 4]) if (!knot(x, y)) c.put(x, y + dy, ink, 3)
   }
-  // Splinters burst from the break as rays that grow out and then let go
-  // from the inside, so each cell lights once and goes dark once.
+  // Splinters burst from the break as rays at full length on the snap, then
+  // let go from the inside out, so every cell they light, lights on frame 12
+  // (the loop's one mass rise) and later frames only go dark.
   if (s < 6) {
     for (let k = 0; k < 6; k++) {
       const a = ((k + 0.25 + noise(seed, 1, k) * 0.5) / 6) * 2 * Math.PI
-      const v = 2.5 + noise(seed, 2, k)
+      const reach = 3 * (2.5 + noise(seed, 2, k))
       const ray: Ink = noise(seed, 3, k) < 0.6 ? 'spark' : 'cool'
-      for (let r = Math.max(2, (s - 1.5) * v); r <= (s + 1) * v; r += 0.5) c.put(brk + Math.cos(a) * r * 1.6, 3.5 + Math.sin(a) * r * 0.6, ray, 5)
+      // Points on a fixed grid along the ray, so letting go only removes dots.
+      for (let r = 2; r <= reach; r += 0.5) if (r >= 2 + (s * (reach - 2)) / 5) c.put(brk + Math.cos(a) * r * 1.6, 3.5 + Math.sin(a) * r * 0.6, ray, 5)
     }
   }
 }
