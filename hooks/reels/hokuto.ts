@@ -102,13 +102,17 @@ type Thug = {
   lit: number // pressure points lit
   point: Ink
   cracks: number // 0 to 1: share of the body cracked yellow
+  // Walking in: a plain dark red silhouette, so the cells he crosses change
+  // once each way, whatever the seed, and the pads light as he arrives.
+  walking?: boolean
+  lower?: Ink // the torso and legs, when they throb against the shoulders
 }
 
 // A hulking thug in half-block pixels: head, studded shoulder pads, torso, legs.
 function thug(c: Canvas, seed: number, t: Thug) {
   const hw = c.cols === 32 ? 4 : 3 // half the shoulders' width
   const { cx, swell: s } = t
-  const head: Ink = noise(seed, 40) < 0.5 ? 'hot' : t.body
+  const head: Ink = !t.walking && noise(seed, 40) < 0.5 ? 'hot' : t.body
   // The pressure points: body pixels on the head, shoulders and torso, in the seed's order.
   const spots: [number, number][] = [[-1, 0], [0, 0]]
   for (let dx = 1 - hw; dx < hw - 1; dx++) spots.push([dx, 1])
@@ -119,8 +123,8 @@ function thug(c: Canvas, seed: number, t: Thug) {
   const rows: [number, number][] = [[cx - 1 - (s >> 1), cx + 1 + (s >> 1)], [cx - hw - s, cx + hw + s], [cx - hw + 1 - s, cx + hw - 1 + s]]
   rows.forEach(([a, b], y) => {
     for (let col = a; col < b; col++) {
-      let ink = y === 0 ? head : t.body
-      if (y === 1 && (col === a || col === b - 1) && s === 0) ink = 'cool'
+      let ink = y === 0 ? head : y === 2 ? t.lower ?? t.body : t.body
+      if (y === 1 && (col === a || col === b - 1) && s === 0 && !t.walking) ink = 'cool'
       if (t.cracks > 0 && noise(seed, 42, col - cx, y) < t.cracks) ink = 'spark'
       if (lit.has(`${col - cx},${y}`)) ink = t.point
       c.pix(col, y, ink)
@@ -128,7 +132,7 @@ function thug(c: Canvas, seed: number, t: Thug) {
   })
   // Legs apart; a swollen thug's legs splay.
   const legs = c.cols === 32 ? [-3, -2, 1, 2] : [-2, 1]
-  for (const dx of legs) c.pix(cx + dx + Math.sign(dx + 0.5) * (s >> 1), 3, t.body)
+  for (const dx of legs) c.pix(cx + dx + Math.sign(dx + 0.5) * (s >> 1), 3, t.lower ?? t.body)
 }
 
 // The burst, k frames after it: a yellow core that shrinks and a red wash
@@ -145,32 +149,35 @@ function burstBack(c: Canvas, k: number, cx: number) {
   }
 }
 
-// The splash: red and dark red half-block chunks thrown out of the core,
-// slowing and falling; each lands as a dark red stain on the ground, kept
-// until `dry`. `blocked` names the columns holding braille dots (Ken, the
-// Dipper), which the chunks keep out of so pixels and dots never share a cell.
+// The splash: a ring of red and dark red half-block chunks bursts out of
+// the core, 2 columns a frame toward Ken and 1 the other way. Each cell it
+// reaches (most of them, as the seed picks) flares red for 2 frames, dims
+// to dark red, and on the ground row leaves a dark red stain, kept until
+// `dry`; the core's own cells stain once it has gone. A cell changes once
+// up and then only down, whatever the seed, so the splash never strobes.
+// `blocked` names the columns holding braille dots (Ken, the Dipper), which
+// the chunks keep out of so pixels and dots never share a cell.
 function splash(c: Canvas, seed: number, k: number, cx: number, dry: boolean, blocked: (col: number) => boolean) {
   if (k < 1) return
-  const big = c.cols === 32
-  const at = (i: number, t: number) => {
-    const reach = (big ? 11 : 5) * (1 - Math.exp(-t / 4))
-    const vx = noise(seed, 50, i) - 0.65
-    const vy = (noise(seed, 51, i) - 0.7) * 1.4
-    return [Math.round(cx - 0.5 + vx * reach * 2), 1.5 + vy * reach + 0.03 * t * t] as const
-  }
-  for (let i = 0; i < (big ? 30 : 16); i++) {
-    // The tick it lands, if it does within 22.
-    let land = 1
-    while (land < 22 && at(i, land)[1] < 3.5) land++
-    if (k >= land) {
-      const [x] = at(i, land)
-      if (!dry && !blocked(x)) c.pix(x, 3, 'deep')
-      continue
+  for (let col = 0; col < c.cols; col++) {
+    if (blocked(col)) continue
+    const left = col < cx
+    const d = left ? cx - 1 - col : col - cx // 0 to 3 inside the core
+    for (const row of [0, 1]) {
+      if (noise(seed, 61, col, row) >= 0.85) continue
+      const late = noise(seed, 60, col, row) < 0.5 ? 0 : 1
+      const top = noise(seed, 62, col, row) < 0.5
+      const y = row * 2 + (top ? 0 : 1)
+      const t0 = d < 4 ? 6 + late : 2 + Math.floor((d - 4) / (left ? 2 : 1)) + late
+      if (k < t0) continue
+      const s = k - t0
+      if (d >= 4 && s < 2) {
+        c.pix(col, y, 'hot')
+        c.pix(col, row * 2 + (top ? 1 : 0), s ? 'deep' : c.mix('hot', 'deep', 0.5))
+      } else if (d >= 4 && s === 2) c.pix(col, y, c.mix('hot', 'deep', 0.5))
+      else if (d >= 4 && s === 3) c.pix(col, y, 'deep')
+      else if (row === 1 && !dry) c.pix(col, 3, 'deep')
     }
-    const [x, y] = at(i, k)
-    const [px, py] = at(i, k - 1)
-    if (k > 1 && !blocked(px) && py >= 0) c.pix(px, Math.round(py), 'deep')
-    if (!blocked(x) && y >= -0.5) c.pix(x, Math.max(0, Math.round(y)), i % 3 === 0 ? 'hot' : c.mix('hot', 'deep', 0.5))
   }
 }
 
@@ -237,10 +244,13 @@ function flurry(c: Canvas, f: number, seed: number) {
   // The hundred fists: each cell flickers a fist on its own beat.
   if (f >= BLUR[0] && f < BLUR[1]) {
     const end = cx - (big ? 4 : 3) - swell - 1
+    // The seed shuffles the 6 beats, dealt in turn along the cells, so each
+    // frame lights at most one cell in 6 whatever the seed.
+    const beats = [0, 1, 2, 3, 4, 5].sort((a, b) => noise(seed, 30, a) - noise(seed, 30, b))
     for (let col = (x0 >> 1) + 1; col <= end; col++) {
       for (const row of [0, 1]) {
         c.bg(col, row, c.mix('hot', 'base', 0.75))
-        const k = (f + Math.floor(noise(seed, 30, col, row) * 6)) % 6
+        const k = (f + beats[(col * 2 + row) % 6]!) % 6
         const ink: Ink | null = k === 0 ? 'spark' : k === 1 ? 'hot' : k === 2 ? c.mix('hot', 'deep', 0.5) : k === 3 ? 'deep' : null
         if (!ink) continue
         const dy = row * 4 + (noise(seed, 31, col, row, f >> 3) < 0.5 ? 0 : 1)
@@ -250,12 +260,13 @@ function flurry(c: Canvas, f: number, seed: number) {
   }
 
   if (f < POP) {
-    const struck = f >= RUSH && f < RUSH + 2
-    const throb = swell > 0 && (f >> 1) & 1
-    thug(c, seed, { cx, swell, body: struck || throb ? 'hot' : 'deep', lit, point: 'spark', cracks: f >= 60 ? (f - 58) / 40 : 0 })
+    // The swelling thug's head and shoulders throb red over a dark red torso,
+    // so only the few cells holding both brighten at once.
+    const body: Ink = swell > 0 && (f >> 1) & 1 ? 'hot' : 'deep', lower: Ink = 'deep'
+    thug(c, seed, { cx, swell, body, lower, lit, point: 'spark', cracks: f >= 60 ? (f - 58) / 40 : 0 })
   } else {
     splash(c, seed, f - POP, cx, f >= FLURRY - WALK, col => col <= (kx + 7) >> 1)
-    if (f >= FLURRY - WALK) thug(c, seed + 1, { cx: cx + FLURRY - f, swell: 0, body: 'deep', lit: 0, point: 'spark', cracks: 0 })
+    if (f >= FLURRY - WALK) thug(c, seed, { cx: cx + FLURRY - f, swell: 0, body: 'deep', lit: 0, point: 'spark', cracks: 0, walking: true })
   }
 }
 
@@ -332,7 +343,7 @@ function sevenStars(c: Canvas, f: number, seed: number) {
     // The splash keeps out of the Dipper's and Ken's columns; the new thug
     // walks in once it has landed.
     splash(c, seed, f - HIDEBU, cx, f >= SEVEN - 6, col => col <= (ox >> 1) + 9 || (big && col >= kx >> 1 && col <= (kx + 7) >> 1))
-    if (f >= SEVEN - 6) thug(c, seed + 1, { cx: cx + SEVEN - f, swell: 0, body: 'deep', lit: 0, point: 'spark', cracks: 0 })
+    if (f >= SEVEN - 6) thug(c, seed, { cx: cx + SEVEN - f, swell: 0, body: 'deep', lit: 0, point: 'spark', cracks: 0, walking: true })
   }
 }
 
