@@ -16,11 +16,12 @@ const WIDE: readonly (readonly [number, number])[] = [
   [0x1fa70, 0x1faff], [0x20000, 0x3fffd],
 ]
 const ZERO = /\p{Mn}|\p{Me}/u
+const EMOJI = /\p{Emoji_Presentation}/u
 
 function charColumns(char: string): number {
   const code = char.codePointAt(0)!
   if (ZERO.test(char) || (code >= 0x200b && code <= 0x200f) || (code >= 0xfe00 && code <= 0xfe0f)) return 0
-  return WIDE.some(([lo, hi]) => code >= lo && code <= hi) ? 2 : 1
+  return EMOJI.test(char) || WIDE.some(([lo, hi]) => code >= lo && code <= hi) ? 2 : 1
 }
 
 export function columnsOf(text: string): number {
