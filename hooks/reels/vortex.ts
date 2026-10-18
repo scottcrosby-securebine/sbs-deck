@@ -4,11 +4,11 @@ import { noise } from '../canvas'
 // Vortex (Doctor Who). One variant, vortex, 120 frames, played on long waits.
 //
 // The time vortex irises open from the center: a spiral tunnel of red,
-// yellow, aqua, dark red and dim aqua bands turning about 0.05 radians a
-// frame. WIBBLY WOBBLY TIMEY WIMEY lands as the tunnel is fully open. The
-// TARDIS appears in the tunnel's dark heart, a speck with its lamp, and
-// tumbles nearer, its lamp wheeling round the box, until the vortex closes in
-// on it and it is gone.
+// yellow, aqua, dark red and dim aqua bands, their phase advancing 0.05 a
+// frame (a quarter of the prototype's 0.22). WIBBLY WOBBLY TIMEY WIMEY lands
+// as the tunnel is fully open. The TARDIS appears in the tunnel's dark heart,
+// a speck with its lamp, and tumbles nearer, its lamp wheeling round the box,
+// until the vortex closes in on it and it is gone.
 //
 // A night street: a dark red sky over black rooftops whose windows light one
 // by one. VWORP VWORP: the TARDIS materialises, pulsing in and out and
@@ -36,7 +36,7 @@ const DOOR = 66 // the door opens
 const SONIC = 76 // close on the sonic screwdriver
 const ALLONS = 84 // ALLONS-Y: the sonic fires
 const DEMAT = 102 // back on the street: the TARDIS dematerialises
-const SPIN = 0.05 // radians a frame
+const SPIN = 0.05 // band phase a frame
 
 // Materialisation levels per frame, 0 gone to 4 solid: pulses in, each brighter.
 const PULSES = [1, 1, 2, 2, 2, 1, 1, 3, 3, 3, 2, 2, 4, 4, 4, 3, 3, 4]
@@ -68,7 +68,7 @@ function vortex(c: Canvas, f: number, seed: number) {
     for (let y = 0; y < 4; y++) {
       if (RANK.get(x * 2 + (y >> 1))! >= shown) continue
       const dx = x - 15.5, dy = (y - 1.5) * 2.2, r = Math.hypot(dx, dy)
-      const v = (arms * (Math.atan2(dy, dx) - dir * SPIN * f)) / (2 * Math.PI) + Math.log(r + 1) * twist
+      const v = (arms * Math.atan2(dy, dx)) / (2 * Math.PI) + Math.log(r + 1) * twist - dir * SPIN * f
       c.pix(x, y, bands[(Math.floor((((v % 1) + 1) % 1) * 5) + shift) % 5]!)
     }
   }
@@ -115,7 +115,8 @@ function tardis(c: Canvas, x: number, levels: readonly [number, number], lit: bo
 }
 
 // A night street: a dark red sky over black rooftops whose windows light one
-// by one, a dark road. The sky brightens over 3 frames as the scene cuts in.
+// by one, all within 12 frames, so none lights near the loop's end; a dark
+// road. The sky brightens over 3 frames as the scene cuts in.
 function street(c: Canvas, f: number, seed: number) {
   const s = f - (f < DEMAT ? VWORP : DEMAT)
   const glow: Ink = s < 2 ? c.mix('deep', 'base', s ? 0.25 : 0.5) : 'deep'
@@ -127,7 +128,7 @@ function street(c: Canvas, f: number, seed: number) {
     const tall = noise(seed, 20, col) < 0.4
     if (tall) c.pix(col, 0, 'base')
     c.pix(col, 1, 'base')
-    if (noise(seed, 21, col) < 0.45 && s >= 2 + Math.floor(noise(seed, 23, col) * 18)) {
+    if (noise(seed, 21, col) < 0.45 && s >= 2 + Math.floor(noise(seed, 23, col) * 10)) {
       c.pix(col, tall && noise(seed, 24, col) < 0.5 ? 0 : 1, windows[Math.floor(noise(seed, 22, col) * 3)]!)
     }
   }
