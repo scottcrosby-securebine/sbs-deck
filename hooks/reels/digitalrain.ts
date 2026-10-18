@@ -1,10 +1,11 @@
 import type { Canvas, Ink, Reel } from '../canvas'
+import type { Slot } from '../theme'
 import { noise } from '../canvas'
 
 // Digital rain (The Matrix). As the code drains, a block cursor types WAKE
-// UP, NEO on the black screen. WAKE UP, NEO: the code erupts from the cursor
-// and pours down every column, each
-// stream led by a lit head glyph with its trail fading behind it, every
+// UP, NEO on the black screen. WAKE UP, NEO: the code erupts from the cursor,
+// washes the words away and pours down every column, each stream glowing up
+// to a lit head glyph with its trail fading behind it, every
 // katakana changing in place in both rows, and about 40% of the columns
 // trailing a streak of 2 or 3 dots behind their heads. Red glitch cells blink
 // in the code. The Woman in the Red Dress walks in, the code around her going
@@ -37,21 +38,50 @@ const KANA = 'ｦｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅ
 // The rain's clock stops for 2 frames on each knock.
 const clock = (f: number) => f - KNOCKS.reduce((n, k) => n + Math.max(0, Math.min(2, f - k + 1)), 0)
 const kana = (...n: number[]) => KANA[Math.floor(noise(...n) * KANA.length)]!
+const M = (from: Slot, t: number, to: Slot = 'base'): Ink => ({ from, to, t })
 
-type Stream = { s: number; v: number; len: number }
+type Stream = { s: number; v: number }
+
+// Rain levels, dark to bright: the cell's plate and glyph ink. Each step is
+// under 0.10 in luminance in both themes, so a cell that brightens a level a
+// frame never flashes: the rain only ever counts as falling.
+const LEVELS: readonly (readonly [Ink | null, Ink])[] = [
+  [null, M('cool', 0.75)],
+  [M('cool', 0.75), M('cool', 0.5)],
+  [M('cool', 0.75), M('cool', 0.25)],
+  [M('cool', 0.75), 'cool'],
+  [M('cool', 0.5), 'cool'], // the head enters the cell
+  [M('cool', 0.25), M('cool', 0.25)],
+  [M('cool', 0.25), 'cool'],
+  ['cool', 'base'], // the head at its brightest
+]
+const STEP = 1.2 // dots a level; a stream falls at most 1.15 dots a frame
 
 // Column c's streams, by the rain clock: the first leaves the cursor's row at
 // the eruption, 2 columns a frame each way, and the last clears by DRAINED.
 function streams(seed: number, c: number): Stream[] {
   const v = 0.55 + noise(seed, 1, c) * 0.6 // dots a frame
-  const len = 3 + Math.floor(noise(seed, 2, c) * 6) // trail, in dots
-  const cross = (8 + len) / v
+  const cross = (8 + 6 * STEP) / v // glow above, the canvas, trail below
   const out: Stream[] = []
   for (let s = Math.abs(c - CURSOR) / 2 + (c === CURSOR ? 0 : noise(seed, 6, c) * 8), k = 0; s + cross <= clock(DRAINED); k++) {
-    out.push({ s, v, len })
+    out.push({ s, v })
     s += cross * 0.8 + 6 + noise(seed, 3, c, k) * 14
   }
   return out
+}
+
+// A cell's rain level at rain time tau: it glows up a level every STEP dots as
+// a head nears, brightens inside the cell as the head falls through it, and
+// drops back to a fading trail behind it.
+function level(list: readonly Stream[], row: number, tau: number): number {
+  let best = 0
+  for (const { s, v } of list) {
+    const y = (tau - s) * v // the head, in dots
+    const top = row * 4
+    const lv = y < top ? 3 - Math.floor((top - y) / STEP) : y < top + 4 ? 4 + Math.floor((y - top) / STEP) : 3 - Math.floor((y - top - 4) / STEP)
+    best = Math.max(best, Math.min(7, lv))
+  }
+  return best
 }
 
 // The Woman in the Red Dress: hair, bodice, skirt, and a swaying or flared hem.
@@ -96,78 +126,120 @@ function rabbitAt(f: number): { x: number; rows: readonly string[] } | null {
   return x > 32 ? null : { x, rows: f > RABBIT + 10 && (f >> 1) & 1 ? TUCK : RUN }
 }
 
-function draw(c: Canvas, f: number, seed: number) {
-  const W = 32
-  const mirror = (face: 1 | -1, x: number, w: number) => (face === 1 ? x : W - x - w)
+const W = 32
+const mirror = (face: 1 | -1, x: number, w: number) => (face === 1 ? x : W - x - w)
+
+type Look = { bg: Ink | null; ink: Ink | null; ch: string }
+// The scripted layer at frame f: pixels, the cells they hold, the cells it
+// paints over the rain, and the cells where the rain is hushed to its dimmest.
+type Scene = { pix: Pixel[]; held: Set<number>; over: Map<number, Look>; hush: Set<number> }
+
+function scene(f: number, seed: number): Scene {
   const tau = clock(f)
   const pix: Pixel[] = []
+  const over = new Map<number, Look>()
+  const hush = new Set<number>()
+  const code = (col: number, row: number) => kana(seed, 8, col, row, Math.floor((tau + noise(seed, 9, col, row) * 5) / (2 + Math.floor(noise(seed, 7, col, row) * 4))))
 
-  // The cursor types WAKE UP, NEO before the eruption, blinking once.
+  // The cursor types WAKE UP, NEO before the eruption, blinking once; the
+  // eruption washes the words away column by column.
   const typed = Math.max(0, f - TYPE + 1)
   if ((f >= TYPE && f < DRAINED + 4) || f >= DRAINED + 6) pix.push([CURSOR + typed, 0, 'cool'], [CURSOR + typed, 1, 'cool'])
+  for (let i = 0; i < WAKE.length; i++) {
+    if (i < typed || (f < TYPE && tau < streams(seed, CURSOR + i)[0]!.s)) over.set(CURSOR + i, { bg: null, ink: WAKE[i] === ' ' ? null : 'cool', ch: WAKE[i]! })
+  }
 
-  // The Woman in the Red Dress.
+  // The Woman in the Red Dress: the code goes still and red around her, wider
+  // at her peak; look again, and she is red glitch code.
   const herFace: 1 | -1 = noise(seed, 20) < 0.5 ? 1 : -1
   const wx = womanAt(f)
-  let herCenter = -99
-  const look = new Set<number>() // her cells once she dissolves: look again
   if (wx !== null) {
     const rows = f >= DRESS ? FLARE : (f >> 1) & 1 ? STRIDE : WOMAN
     const x = mirror(herFace, f >= DRESS ? wx - 1 : wx, rows[0]!.length)
-    herCenter = x + (rows[0]!.length >> 1)
+    const center = x + (rows[0]!.length >> 1)
+    const reach = f < DRESS ? 4 : f < GONE ? 5 : 5 - (f - GONE)
+    for (let col = center - reach; col <= center + reach; col++) {
+      for (const row of [0, 1]) if (col >= 0 && col < W) over.set(row * W + col, { bg: M('hot', f >= DRESS && f < GONE && Math.abs(col - center) <= 2 ? 0.5 : 0.75), ink: 'hot', ch: code(col, row) })
+    }
     const her = pixels(rows, x, 0, herFace, { S: 'spark', H: 'hot', D: 'deep' })
     if (f < DRESS + 4) pix.push(...her)
-    else if (f < GONE) for (const [px, py] of her) if (px >= 0 && px < W) look.add((py >> 1) * W + px)
+    else if (f < GONE) for (const [px, py] of her) if (px >= 0 && px < W) over.set((py >> 1) * W + px, { bg: 'deep', ink: 'hot', ch: kana(seed, 13, px, py >> 1, f >> 1) })
   }
 
-  // The white rabbit, runs to the seed's side; its eye is red.
+  // The white rabbit runs to the seed's side; its eye is red. The rain holds
+  // still around it, 10 columns ahead while it runs and 3 behind, where its
+  // trail takes over, and ahead of where it comes back in before it does.
   const runFace: 1 | -1 = noise(seed, 21) < 0.5 ? 1 : -1
   const rabbit = rabbitAt(f)
-  let rabbitCenter = -99
+  const zones: [number, number, number][] = [] // center, behind, ahead
   if (rabbit) {
     const w = rabbit.rows[0]!.length
     const x = mirror(runFace, rabbit.x, w)
-    rabbitCenter = x + (w >> 1)
+    zones.push([x + (w >> 1), 3, f < RABBIT + 8 ? 6 : 10])
     pix.push(...pixels(rabbit.rows, x, 0, runFace, { X: 'spark', E: 'hot' }))
   }
-  // The rain hushes ahead of where the rabbit comes back in, before it does.
-  const comingCenter = f >= BACK - 5 && f < BACK ? mirror(runFace, -7 + 2 * (f - BACK), RUN[0]!.length) + 3 : -99
-  // Where the rabbit has been in the last 5 frames: the code lights yellow behind it.
-  const trail = new Map<number, number>()
-  for (let a = 5; a >= 1; a--) {
+  if (f >= BACK - 5 && f < BACK) zones.push([mirror(runFace, -7 + 2 * (f - BACK), RUN[0]!.length) + 3, 0, 10])
+  for (const [center, behind, ahead] of zones) {
+    for (let col = 0; col < W; col++) {
+      const d = (col - center) * runFace
+      if (d >= -behind && d <= ahead) hush.add(col).add(W + col)
+    }
+  }
+  // The flare as it pops out; then the code lights yellow where it has been in
+  // the last 5 frames.
+  if (rabbit && f < RABBIT + 5) {
+    const center = zones[0]![0]
+    for (let col = center - 6; col <= center + 6; col++) for (const row of [0, 1]) over.set(row * W + col, { bg: M('spark', f < RABBIT + 2 ? 0.5 : 0.75), ink: 'spark', ch: code(col, row) })
+  }
+  for (let a = 5; a >= 1 && f >= RABBIT + 8; a--) {
     const r = rabbitAt(f - a)
-    if (!r || f < RABBIT + 8) continue
+    if (!r) continue
     const w = r.rows[0]!.length
-    for (const [x, y] of pixels(r.rows, mirror(runFace, r.x, w), 0, runFace, { X: 'spark', E: 'hot' })) if (x >= 0 && x < W) trail.set((y >> 1) * W + x, a)
+    for (const [x, y] of pixels(r.rows, mirror(runFace, r.x, w), 0, runFace, { X: 'spark', E: 'hot' })) {
+      const cell = (y >> 1) * W + x
+      if (x >= 0 && x < W) over.set(cell, a <= 2 ? { bg: M('spark', 0.75), ink: 'spark', ch: code(x, y >> 1) } : { bg: null, ink: M('spark', a <= 3 ? 0.25 : 0.5), ch: code(x, y >> 1) })
+    }
   }
 
-  const held = new Set<number>() // cells holding pixels: no glyph or dot goes there
-  for (const [x, y] of pix) if (x >= 0 && x < W) held.add((y >> 1) * W + x)
-
-  // The rabbit's flare: a burst of yellow code around it.
-  const flare = f >= RABBIT && f < RABBIT + 5 ? f - RABBIT : -1
   // The knocks: each a red disc booming out of the center a column a frame
-  // each way, a yellow core on the knock, until the code drains.
-  const peak = f >= DRESS && f < GONE
-  const knock = f < 92 ? KNOCKS.filter(k => f >= k).map(k => f - k).pop() ?? -1 : -1
+  // each way from a yellow core, until the code drains.
+  const knock = KNOCKS.filter(k => f >= k).map(k => f - k).pop() ?? -1
+  for (let col = 0; col < W && f < 92; col++) {
+    const depth = KNOCKS.map(k => f - k + 0.5 - Math.abs(col - 15.5)).filter(d => d >= 0).pop()
+    if (depth === undefined) continue
+    const bg: Ink = knock === 0 && depth === 0 ? 'spark' : depth < 2 ? 'hot' : depth < 4 ? M('hot', 0.5, 'deep') : 'deep'
+    const ink: Ink = depth === 0 && knock > 0 ? 'spark' : depth < 4 ? 'base' : 'hot'
+    for (const row of [0, 1]) over.set(row * W + col, { bg, ink, ch: code(col, row) })
+  }
+
+  const held = new Set<number>()
+  for (const [x, y] of pix) if (x >= 0 && x < W) held.add((y >> 1) * W + x)
+  return { pix, held, over, hush }
+}
+
+function draw(c: Canvas, f: number, seed: number) {
+  const tau = clock(f)
+  // Scenes of nearby frames, kept for this draw only.
+  const scenes = new Map<number, Scene>()
+  const at = (g: number) => {
+    const k = ((g % LOOP) + LOOP) % LOOP
+    let sc = scenes.get(k)
+    if (!sc) scenes.set(k, sc = scene(k, seed))
+    return sc
+  }
+  const veiled = (g: number, cell: number) => { const sc = at(g); return sc.held.has(cell) || sc.over.has(cell) || sc.hush.has(cell) }
+  const now = at(f)
   // Glitches swarm at her peak and as the code drains; none while the discs boom.
   const p = f >= DRESS - 2 && f < DRESS + 6 ? 0.5 : f >= KNOCKS[0] && f < 92 ? 0 : f >= 92 && f < 100 ? 0.45 : 0.18
 
   for (let col = 0; col < W; col++) {
+    const list = streams(seed, col)
     const tail = noise(seed, 4, col) < 0.4 ? 2 + (noise(seed, 5, col) < 0.5 ? 1 : 0) : 0
     const x = col * 2 + (col & 1)
-    const state = [9, 9] // per row: 0 head, else trail age in (0, 1], 9 none
     const dots = new Set<number>()
-    for (const st of streams(seed, col)) {
-      const y = (tau - st.s) * st.v
-      if (y < 0 || y - st.len > 8) continue
-      const hy = Math.floor(y)
-      for (const row of [0, 1]) {
-        const bottom = row * 4 + 3
-        if (hy >= row * 4 && hy <= bottom) state[row] = 0
-        else if (y > bottom && y - bottom <= st.len) state[row] = Math.min(state[row]!, (y - bottom) / st.len)
-      }
-      for (let i = 1; i <= tail; i++) {
+    for (const { s, v } of list) {
+      const hy = Math.floor((tau - s) * v)
+      for (let i = 1; i <= tail && hy >= 0; i++) {
         const dy = hy >> 2 === 1 ? 4 - i : hy - i // behind a row-1 head, stacked at the foot of the cell above
         if (dy >= 0 && dy < 8 && dy >> 2 !== hy >> 2) dots.add(dy)
       }
@@ -175,60 +247,43 @@ function draw(c: Canvas, f: number, seed: number) {
 
     for (const row of [0, 1]) {
       const cell = row * W + col
-      if (held.has(cell)) continue
-      if (row === 0 && col >= CURSOR && col < CURSOR + typed) {
-        if (WAKE[col - CURSOR] !== ' ') c.glyph(col, row, WAKE[col - CURSOR]!, 'cool')
+      if (now.held.has(cell)) continue
+      const look = now.over.get(cell)
+      if (look) {
+        if (look.bg) c.bg(col, row, look.bg)
+        if (look.ink) c.glyph(col, row, look.ch, look.ink)
         continue
       }
-      const d = Math.abs(col - herCenter)
-      // The code goes still and red around her, wider at her peak; it holds
-      // still around the rabbit too, so each stands out: 10 columns ahead of it
-      // while it runs, so no head lights just before it arrives, and 3 behind,
-      // where its trail takes over.
-      const red = d <= (f < DRESS ? 4 : f < GONE ? 5 : 5 - (f - GONE))
-      const age = trail.get(cell)
-      const ahead = (col - rabbitCenter) * runFace
-      const due = (col - comingCenter) * runFace // ahead of where it comes back in
-      const hush = red || age !== undefined || (rabbit !== null && ahead >= -3 && ahead <= (f < RABBIT + 8 ? 6 : 10)) || (due >= 0 && due <= 10)
-      const s = hush ? 9 : state[row]!
-      // Depth inside the youngest disc holding the cell: 0 on its front.
-      const depth = KNOCKS.map(k => f < 92 ? f - k + 0.5 - Math.abs(col - 15.5) : -1).filter(k => k >= 0).pop() ?? -1
-      const slot = f + Math.floor(noise(seed, 10, col, row) * 16)
-      const glitch = look.has(cell) || (slot % 16 < 2 && !hush && depth < 0 && s > 1 && !(row === 0 && f >= TYPE && col >= CURSOR && col <= CURSOR + WAKE.length) && noise(seed, 11, col, row, slot >> 4) < p)
-      let bg: Ink | null = null
-      let ink: Ink | null = null
-      let ch = kana(seed, 8, col, row, Math.floor((tau + noise(seed, 9, col, row) * 5) / (2 + Math.floor(noise(seed, 7, col, row) * 4))))
-
-      if (s === 0) [bg, ink, ch] = ['cool', 'base', kana(seed, 6, col, row, tau)]
-      else if (s <= 0.5) [bg, ink] = [c.mix('cool', 'base', 0.75), 'cool']
-      else if (s <= 1) [bg, ink] = [c.mix('cool', 'base', 0.75), c.mix('cool', 'base', 0.5)]
-      else if (noise(seed, 12, col, row, tau >> 3) < 0.45) ink = c.mix('cool', 'base', 0.75)
-      if (red) [bg, ink] = [c.mix('hot', 'base', peak && d <= 2 ? 0.5 : 0.75), 'hot']
+      const ch = kana(seed, 8, col, row, Math.floor((tau + noise(seed, 9, col, row) * 5) / (2 + Math.floor(noise(seed, 7, col, row) * 4))))
+      // Out from under the script, the rain glows back a level a frame.
+      let free = 0
+      while (free < 7 && !veiled(f - free, cell)) free++
+      const lv = Math.min(level(list, row, tau), free)
+      // A glitch blinks only in a dim cell that stays dim and clear of the
+      // script around it; its 0.099 luminance never counts as a flash.
+      const slot = f + ((col * 7 + row * 8) & 15)
+      const glitch = slot % 16 < 2 && lv <= 1 && noise(seed, 11, col, row, slot >> 4) < p &&
+        [-1, 0, 1, 2].every(d => !veiled(f + d, cell) && level(list, row, clock(f + d)) <= (d < 0 ? 2 : 1))
+      if (glitch) {
+        c.bg(col, row, 'deep')
+        c.glyph(col, row, kana(seed, 13, col, row, f >> 1), M('hot', 0.5))
+        continue
+      }
+      const [bg, ink] = LEVELS[lv]!
       // The discs leave the code on a red plate while it drains.
-      if (!bg && f >= 92 && f < 96) bg = c.mix('hot', 'base', 0.75)
-
-      if (flare >= 0 && Math.abs(col - rabbitCenter) <= 6) {
-        bg = flare < 2 ? c.mix('spark', 'base', 0.5) : c.mix('spark', 'base', 0.75)
-        ink = 'spark'
-      } else if (age !== undefined) {
-        if (age <= 2) [bg, ink] = [c.mix('spark', 'base', 0.75), 'spark']
-        else ink = c.mix('spark', 'base', age <= 3 ? 0.25 : 0.5)
-      }
-      if (depth >= 0) {
-        bg = knock === 0 && depth === 0 ? 'spark' : depth < 2 ? 'hot' : depth < 4 ? c.mix('hot', 'deep', 0.5) : 'deep'
-        ink = depth === 0 && knock > 0 ? 'spark' : depth < 4 ? 'base' : 'hot'
-      }
-      if (glitch) [bg, ink, ch] = ['deep', 'hot', kana(seed, 13, col, row, f >> 1)]
-
-      if (bg) c.bg(col, row, bg)
+      const plate = bg ?? (f >= 92 && f < 96 ? M('hot', 0.75) : null)
+      if (plate) c.bg(col, row, plate)
       const tailDots = [...dots].filter(dy => dy >> 2 === row)
-      if (tailDots.length && !hush && depth < 0 && s !== 0 && !glitch && age === undefined && flare < 0) {
-        tailDots.forEach(dy => c.put(x, dy, dy === Math.max(...tailDots) ? c.mix('cool', 'base', 0.25) : c.mix('cool', 'base', 0.5), 2))
-      } else if (ink) c.glyph(col, row, ch, ink)
+      // The tail's nearest dot takes the cell's glyph ink, so the cell's
+      // luminance is the same with dots or a glyph.
+      if (tailDots.length && lv >= 1) {
+        const near = Math.max(...tailDots)
+        tailDots.forEach(dy => c.put(x, dy, dy === near ? ink : LEVELS[lv - 1]![1], dy === near ? 3 : 2))
+      } else if (lv > 0 || noise(seed, 12, col, row, tau >> 3) < 0.45) c.glyph(col, row, lv >= 4 ? kana(seed, 6, col, row, tau) : ch, ink)
     }
   }
 
-  for (const [x, y, ink] of pix) c.pix(x, y, ink)
+  for (const [x, y, ink] of now.pix) c.pix(x, y, ink)
 }
 
 export default {
