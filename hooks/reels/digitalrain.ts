@@ -4,8 +4,8 @@ import { noise } from '../canvas'
 
 // Digital rain (The Matrix). As the code drains, a block cursor types WAKE
 // UP, NEO on the black screen. WAKE UP, NEO: the code erupts from the cursor,
-// washes the words away and pours down every column, each stream glowing up
-// to a lit head glyph with its trail fading behind it, every
+// washes the words away and pours down every column, each stream led by a
+// bright head glyph that lands full bright, its trail fading behind it, every
 // katakana changing in place in both rows, and about 40% of the columns
 // trailing a streak of 2 or 3 dots behind their heads. Red glitch cells blink
 // in the code. The Woman in the Red Dress walks in, the code around her going
@@ -43,17 +43,17 @@ const M = (from: Slot, t: number, to: Slot = 'base'): Ink => ({ from, to, t })
 type Stream = { s: number; v: number }
 
 // Rain levels, dark to bright: the cell's plate and glyph ink. Each step is
-// under 0.10 in luminance in both themes, so a cell that brightens a level a
-// frame never flashes: the rain only ever counts as falling.
+// under 0.10 in luminance in both themes, so a trail that dims a level a frame,
+// or a cell glowing back a level a frame from under the script, never counts.
 const LEVELS: readonly (readonly [Ink | null, Ink])[] = [
   [null, M('cool', 0.75)],
   [M('cool', 0.75), M('cool', 0.5)],
   [M('cool', 0.75), M('cool', 0.25)],
   [M('cool', 0.75), 'cool'],
-  [M('cool', 0.5), 'cool'], // the head enters the cell
+  [M('cool', 0.5), 'cool'],
   [M('cool', 0.25), M('cool', 0.25)],
   [M('cool', 0.25), 'cool'],
-  ['cool', 'base'], // the head at its brightest
+  ['cool', 'base'], // the head
 ]
 const STEP = 1.2 // dots a level; a stream falls at most 1.15 dots a frame
 
@@ -61,24 +61,26 @@ const STEP = 1.2 // dots a level; a stream falls at most 1.15 dots a frame
 // the eruption, 2 columns a frame each way, and the last clears by DRAINED.
 function streams(seed: number, c: number): Stream[] {
   const v = 0.55 + noise(seed, 1, c) * 0.6 // dots a frame
-  const cross = (8 + 6 * STEP) / v // glow above, the canvas, trail below
+  const cross = (8 + 7 * STEP) / v // the canvas and the trail below it
   const out: Stream[] = []
   for (let s = Math.abs(c - CURSOR) / 2 + (c === CURSOR ? 0 : noise(seed, 6, c) * 8), k = 0; s + cross <= clock(DRAINED); k++) {
     out.push({ s, v })
-    s += cross * 0.8 + 6 + noise(seed, 3, c, k) * 14
+    s += cross * 0.7 + 3 + noise(seed, 3, c, k) * 12
   }
   return out
 }
 
-// A cell's rain level at rain time tau: it glows up a level every STEP dots as
-// a head nears, brightens inside the cell as the head falls through it, and
-// drops back to a fading trail behind it.
+// A cell's rain level at rain time tau: full bright the frame a head lands in
+// it (one counted rise), then a level every STEP dots behind it. A stream falls
+// at most 1.15 dots a frame, so the trail drops a level a frame at most and
+// never counts, and the next landing repeats the rise's direction and does not
+// count either.
 function level(list: readonly Stream[], row: number, tau: number): number {
   let best = 0
   for (const { s, v } of list) {
     const y = (tau - s) * v // the head, in dots
     const top = row * 4
-    const lv = y < top ? 3 - Math.floor((top - y) / STEP) : y < top + 4 ? 4 + Math.floor((y - top) / STEP) : 3 - Math.floor((y - top - 4) / STEP)
+    const lv = y < top ? 0 : y < top + 4 ? 7 : 6 - Math.floor((y - top - 4) / STEP)
     best = Math.max(best, Math.min(7, lv))
   }
   return best
@@ -176,7 +178,11 @@ function scene(f: number, seed: number): Scene {
     const w = rabbit.rows[0]!.length
     const x = mirror(runFace, rabbit.x, w)
     zones.push([x + (w >> 1), 3, f < RABBIT + 8 ? 6 : 10])
-    pix.push(...pixels(rabbit.rows, x, 0, runFace, { X: 'spark', E: 'hot' }))
+    const body = pixels(rabbit.rows, x, 0, runFace, { X: 'spark', E: 'hot' })
+    pix.push(...body)
+    // While it runs through the center, the center's rain holds still, so no
+    // head lands beside its rising cells in the 16-column crop.
+    if (f >= RABBIT + 8 && body.some(([px]) => px >= 8 && px <= 23)) for (let col = 8; col <= 23; col++) hush.add(col).add(W + col)
   }
   if (f >= BACK - 5 && f < BACK) zones.push([mirror(runFace, -7 + 2 * (f - BACK), RUN[0]!.length) + 3, 0, 10])
   for (const [center, behind, ahead] of zones) {
