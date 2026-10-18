@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
+import { CONTEXTS } from './picker'
 import { checkLibrary, checkReel } from './reel-rules'
 import { ANIMATIONS } from './spinner'
 import { ALL_REELS, INDEXED_KEYS, LEGACY_REELS, NEW_REELS, unindexedLines } from './library'
@@ -40,4 +41,37 @@ test('the 22 animations are legacy reels by their old names', () => {
 test('a reel file missing from the index gets the exact line to add', () => {
   expect(unindexedLines(['index.ts', 'legacy.ts', '_template.ts', 'notes.md', 'breach.ts', 'newone.ts'], ['breach']))
     .toEqual(["export { default as newone } from './newone'"])
+})
+
+// The s5.5 table, by reel: a context, or context:variant where a variant is named.
+const SPEC_CONTEXTS: Record<string, string[]> = {
+  apes: ['agents'],
+  breach: ['shell', 'thinking'],
+  digitalrain: ['shell'],
+  dontpanic: ['thinking:deep-thought'],
+  ghost: ['edit', 'web:net-dive'],
+  hokuto: ['requesting:flurry', 'thinking:seven-stars'],
+  jupiter2: ['web'],
+  kodama: ['long-wait'],
+  lightcycles: ['edit', 'shell'],
+  sandevistan: ['agents', 'requesting'],
+  sauron: [],
+  vortex: ['long-wait'],
+}
+
+test('each launch reel\'s contexts match the spec table', () => {
+  expect(Object.fromEntries(NEW_REELS.map(r => [r.name, [...r.contexts].sort()]))).toEqual(SPEC_CONTEXTS)
+  expect(NEW_REELS.filter(r => r.rare).map(r => r.name)).toEqual(['sauron'])
+})
+
+test('every context in a reel\'s contexts is a known context with a known variant, and never `other`', () => {
+  for (const reel of NEW_REELS) {
+    for (const context of reel.contexts) {
+      const [name = '', variant, ...rest] = context.split(':')
+      expect(CONTEXTS, `${reel.name}: ${context}`).toContain(name)
+      expect(name, `${reel.name}: ${context}`).not.toBe('other')
+      expect(rest, `${reel.name}: ${context}`).toEqual([])
+      if (variant !== undefined) expect(Object.keys(reel.variants), `${reel.name}: ${context}`).toContain(variant)
+    }
+  }
 })

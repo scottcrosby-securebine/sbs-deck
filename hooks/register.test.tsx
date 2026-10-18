@@ -1,10 +1,15 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, TestBody } from 'claude-code/testing'
 
+import type { ToolCallArgs } from 'claude-code'
+
 import { colorLine } from './color'
 import { NEW_REELS, reelNamed } from './library'
+import { contextOf, holdEnd, poolOf } from './picker'
+import type { Context, Entry } from './picker'
 import { HALF_RATE } from './reels/legacy'
-import { ANIMATIONS, AUTO, NIGHT_CITY_PHRASES, SPINNER_PHRASES, animationFor, decrypt, phraseFor, scanBar } from './spinner'
+import { ANIMATIONS, NIGHT_CITY_PHRASES, SPINNER_PHRASES, decrypt, phraseFor, scanBar } from './spinner'
+import type { SpinnerMode } from './spinner'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -278,9 +283,12 @@ test('the spinner line carries the phrase and the bar', async ($, on) => {
     viewport: WIDE,
     props: { word: 'Baking', message: null, suffix: '…', mode: 'thinking' },
   })
-  const { words, art } = await drawnLine(ui)
-  expect(SPINNER_PHRASES.thinking.some(phrase => phrase.length === words.length)).toBe(true)
-  expect(Object.values(ANIMATIONS).some(draw => art.startsWith(draw(0)))).toBe(true)
+  const [, name = '', variant = ''] = ((await reelKey(ui)) ?? '').split(':')
+  expect(poolOf('thinking', NEW_REELS).map(entry => entry.reel)).toContain(name)
+  expect([...((await ui.find({ key: 'art0' }))?.text ?? '')]).toHaveLength(32)
+  const { words } = await drawnLine(ui)
+  const first = reelNamed(name)?.variants[variant]?.beats[0]?.phrase
+  expect(SPINNER_PHRASES.thinking.some(phrase => phrase.length === words.length) || words === first, words).toBe(true)
   await ui.unmount()
 })
 
@@ -683,52 +691,6 @@ test('/sbs anim refuses an unknown name and takes a name in all three spellings'
   })
   expect((await drawnLine(ui)).art).toStartWith(ANIMATIONS.wave!(0))
   await ui.unmount()
-})
-
-test('in auto only a phrase that calls for it gets a themed animation', () => {
-  expect(animationFor('auto', 'Reading the digital rain')).toBe('rain')
-  expect(animationFor('auto', 'Checking for Cylons')).toBe('cylon')
-  expect(animationFor('auto', 'Riding the sandworm')).toBe('wave')
-  expect(animationFor('auto', 'Jumping to lightspeed')).toBe('warp')
-  expect(animationFor('auto', 'Plotting the burn')).toBe('stars')
-  expect(animationFor('auto', 'Bug hunting')).toBe('invader')
-  expect(animationFor('auto', 'Loading the Construct')).toBe('load')
-  // Pairings the review moved: no picture where the words do not call for one.
-  expect(animationFor('auto', 'Storming Straylight')).toBe('bar')
-  expect(animationFor('auto', 'Seeing the Golden Path')).toBe('bar')
-  expect(animationFor('auto', 'Unfolding a sophon')).toBe('bar')
-  expect(animationFor('auto', 'Walking without rhythm')).toBe('bar')
-  expect(animationFor('auto', 'Thinking with portals')).toBe('bar')
-  expect(animationFor('auto', 'Opening hailing frequencies')).toBe('morse')
-  expect(animationFor('auto', 'Breaching the attack barrier')).toBe('binary')
-  expect(animationFor('auto', 'Loading the quickhack')).toBe('load')
-  expect(animationFor('auto', 'Executing the quickhack')).toBe('binary')
-  expect(animationFor('auto', 'Firing the beam rifle')).toBe('comet')
-  expect(animationFor('auto', 'Calculating the jump')).toBe('stars')
-  expect(animationFor('auto', 'Firing the PDCs')).toBe('comet')
-  expect(animationFor('auto', 'Opening the pod bay doors')).toBe('bar')
-  expect(animationFor('auto', 'Testing, for science')).toBe('bar')
-  expect(animationFor('auto', 'Purging the heresy')).toBe('fire')
-  expect(animationFor('auto', 'Priming the thermoptics')).toBe('load')
-  expect(animationFor('auto', 'Reloading the shotgun')).toBe('load')
-  expect(animationFor('auto', 'Uplinking to Cyberdyne')).toBe('morse')
-  expect(animationFor('auto', 'Raising Tycho Station')).toBe('morse')
-  expect(animationFor('auto', 'Prepping a fresh sleeve')).toBe('helix')
-  expect(animationFor('auto', 'Pinging the mothership')).toBe('sonar')
-  expect(animationFor('auto', 'Handshaking')).toBe('pulse')
-  // Nothing in these calls for a picture: they keep the plain bar.
-  expect(animationFor('auto', 'Grabbing my towel')).toBe('bar')
-  expect(animationFor('auto', 'Consulting the Codex')).toBe('bar')
-  expect(animationFor('eq', 'Reading the digital rain')).toBe('eq')
-
-  const all = Object.values(SPINNER_PHRASES).flat()
-
-  for (const phrase of all) {
-    expect(Object.keys(ANIMATIONS), phrase).toContain(animationFor('auto', phrase))
-  }
-
-  // A good share of the phrases stay plain.
-  expect(all.filter(phrase => animationFor('auto', phrase) === 'bar').length).toBeGreaterThan(all.length / 3)
 })
 
 test('the animations hold up at the frame numbers a real clock gives', () => {
@@ -1318,7 +1280,7 @@ test('an MCP result of plain text blocks is colored by the mod', async ($, on) =
 // no viewport it draws the one-row form.
 const spinnerOn = (
   $: Engine,
-  mode: 'requesting' | 'thinking' | 'tool-input' | 'tool-use',
+  mode: SpinnerMode,
   surface: 'terminal' | 'desktop' = 'terminal',
   options: { viewport?: { columns: number; rows: number }; requestId?: string; word?: string } = {},
 ) =>
@@ -1331,34 +1293,19 @@ const spinnerOn = (
     props: { word: options.word ?? 'Baking', message: null, suffix: '…', mode },
   })
 
-test('in auto the spinner draws the animation its phrase calls for', { timeoutMs: 30_000 }, async ($, on) => {
-  const clock = mock.clock(on)
+test('in auto the spinner plays a reel from its context\'s pool', { timeoutMs: 30_000 }, async ($, on) => {
+  mock.clock(on)
   mock.store(on)
-  on('turn.start', ($, e) => ({ turnId: e.turnId }))
-
-  await $.turn.start({ text: 'go', turnId: 't1' })
   const modes = ['thinking', 'tool-use', 'tool-input', 'requesting'] as const
-  let themed = 0
 
   for (let step = 0; step < 60; step += 1) {
     const mode = modes[step % modes.length] ?? 'thinking'
-    const ui = await spinnerOn($, mode, 'terminal', { viewport: WIDE })
-    await clock.advance(1_500)
-    // Judged on a frame where the phrase reads whole: a resolved phrase still
-    // flickers a character to noise now and then.
-    const { words, art } = await drawnLine(ui)
-
-    if (SPINNER_PHRASES[mode].includes(words)) {
-      const name = animationFor(AUTO, words)
-      themed += name === 'bar' ? 0 : 1
-      const draw = ANIMATIONS[name]!
-      expect(Array.from({ length: 64 }, (_, frame) => draw(frame)).some(strip => art.startsWith(strip)), words).toBe(true)
-    }
-
+    const pool = poolOf(contextOf({ mode, isSubagent: false, tool: undefined, unchangedMs: 0 }), NEW_REELS)
+    const ui = await spinnerOn($, mode, 'terminal', { viewport: WIDE, requestId: `main-${step}` })
+    const key = await reelKey(ui)
+    expect(pool.map(entryText), `${mode}: ${key}`).toContain(asEntry(key, pool))
     await ui.unmount()
   }
-
-  expect(themed).toBeGreaterThan(0)
 })
 
 test('a subagent finishing does not stop the main turn\'s spinner', async ($, on) => {
@@ -2253,4 +2200,501 @@ test('Night City boxes stay square on an unchecked terminal', async ($, on) => {
     expect(await ui.find({ key: 'cut-br' }), name).toBeUndefined()
     await ui.unmount()
   }
+})
+
+// The picker in auto (s5.5). No test here but the rare one runs a main
+// `turn.start`, so no rare roll decides an outcome, and each starts with fresh
+// bags. Pools overlap, so a pool is checked by drawing as many fresh instances
+// as it holds: one full bag, every entry once in some order.
+
+// A pool entry as a drawn key is compared with it: a fixed variant is named.
+const entryText = ({ reel, variant }: Entry) => (variant === undefined ? reel : `${reel}:${variant}`)
+
+// A drawn key `reel:<name>:<variant>` read as its entry in `pool`: the variant
+// counts only where the pool fixes one.
+function asEntry(key: string | undefined, pool: readonly Entry[]): string {
+  const [, reel = '', variant] = (key ?? '').split(':')
+
+  return pool.find(entry => entry.reel === reel)?.variant === undefined ? reel : `${reel}:${variant}`
+}
+
+const reelOf = async (ui: Parameters<typeof reelKey>[0]) => ((await reelKey(ui)) ?? '').split(':')[1] ?? ''
+const variantOf = async (ui: Parameters<typeof reelKey>[0]) => {
+  const [, name = '', variant = ''] = ((await reelKey(ui)) ?? '').split(':')
+
+  return reelNamed(name)!.variants[variant]!
+}
+const poolFor = (context: Context) => poolOf(context, NEW_REELS)
+const sortedPool = (context: Context) => poolFor(context).map(entryText).sort()
+
+let freshCount = 0
+
+// The key one fresh instance draws first, unmounted at once.
+async function firstKey($: Engine, mode: SpinnerMode, requestId = `fresh-${(freshCount += 1)}`) {
+  const ui = await spinnerOn($, mode, 'terminal', { viewport: WIDE, requestId })
+  const key = await reelKey(ui)
+  await ui.unmount()
+
+  return key
+}
+
+// What `count` fresh instances draw, each read as its entry in `context`'s pool.
+async function drawnPool($: Engine, mode: SpinnerMode, context: Context, count = poolFor(context).length) {
+  const drawn: string[] = []
+
+  for (let k = 0; k < count; k += 1) {
+    drawn.push(asEntry(await firstKey($, mode), poolFor(context)))
+  }
+
+  return drawn
+}
+
+// Main-loop tool calls whose runs stay open until the test releases each one.
+function heldCalls($: Engine, on: Parameters<TestBody>[1]) {
+  let release = () => {}
+  let arrived = () => {}
+  on('tool.call', async () => {
+    const open = new Promise<void>(resolve => {
+      release = resolve
+    })
+    arrived()
+    await open
+
+    return { deny: 'held by the test' }
+  })
+
+  // Starts a call; resolves once its run is open, with its release and its end.
+  return async (input: ToolCallArgs) => {
+    const reached = new Promise<void>(resolve => {
+      arrived = resolve
+    })
+    const settled = $.tool.call(input).then(
+      () => undefined,
+      () => undefined,
+    )
+    await reached
+
+    return { release, settled }
+  }
+}
+
+const BASH = { tool: 'Bash', command: 'ls' } as ToolCallArgs
+const EDIT = { tool: 'Edit', file_path: '/tmp/x', old_string: 'a', new_string: 'b' } as ToolCallArgs
+const WEB_FETCH = { tool: 'WebFetch', url: 'https://example.com', prompt: 'read it' } as ToolCallArgs
+const AGENT = { tool: 'Agent', description: 'look', prompt: 'look around' } as ToolCallArgs
+
+test('every indexed reel appears in /sbs anim list and in the pool of each of its contexts', async ($, on) => {
+  mock.store(on)
+  const list = JSON.stringify(await sbsCommand($, 'anim list'))
+
+  for (const reel of NEW_REELS) {
+    expect(list, reel.name).toContain(reel.rare ? `${reel.name} (rare)` : reel.name)
+
+    for (const context of reel.contexts) {
+      const [name, variant] = context.split(':')
+      expect(poolFor(name as Context), context).toContainEqual({ reel: reel.name, variant })
+    }
+
+    if (!reel.rare && reel.name !== 'kodama') {
+      expect(poolFor('other'), reel.name).toContainEqual({ reel: reel.name, variant: undefined })
+    }
+  }
+})
+
+test('detection reaches agents', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  const start = heldCalls($, on)
+
+  const call = await start(AGENT)
+  expect((await drawnPool($, 'thinking', 'agents')).sort()).toEqual(sortedPool('agents'))
+  call.release()
+  await call.settled
+
+  // A subagent's spinner, with no tool running.
+  const drawn: string[] = []
+
+  for (const [k] of poolFor('agents').entries()) {
+    await $.turn.start({ text: '', turnId: `s${k}`, agentId: `agent-${k}` })
+    drawn.push(asEntry(await firstKey($, 'thinking', `agent-${k}`), poolFor('agents')))
+  }
+
+  expect(drawn.sort()).toEqual(sortedPool('agents'))
+})
+
+test('detection reaches long-wait', { timeoutMs: 30_000 }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE, requestId: 'waiting' })
+  await clock.advance(60_000)
+  // The hold, then one more loop: the two picks after it.
+  const picks: string[] = []
+  let last = await reelOf(ui)
+
+  for (let tick = 0; tick < 600 && picks.length < 2; tick += 1) {
+    await clock.advance(125)
+    const reel = await reelOf(ui)
+
+    if (reel !== last) {
+      picks.push(reel)
+      last = reel
+    }
+  }
+
+  expect(picks.sort()).toEqual(['kodama', 'vortex'])
+  await ui.unmount()
+})
+
+for (const [context, input] of [['shell', BASH], ['edit', EDIT], ['web', WEB_FETCH]] as const) {
+  test(`detection reaches ${context}`, async ($, on) => {
+    mock.clock(on)
+    mock.store(on)
+    const call = await heldCalls($, on)(input)
+    expect((await drawnPool($, 'thinking', context)).sort()).toEqual(sortedPool(context))
+    call.release()
+    await call.settled
+  })
+}
+
+for (const [context, mode] of [['thinking', 'thinking'], ['requesting', 'requesting'], ['other', 'responding']] as const) {
+  test(`detection reaches ${context}`, async ($, on) => {
+    mock.clock(on)
+    mock.store(on)
+    expect((await drawnPool($, mode, context)).sort()).toEqual(sortedPool(context))
+  })
+}
+
+test('with tools in parallel the most recent counts', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  const start = heldCalls($, on)
+  const bash = await start(BASH)
+  const edit = await start(EDIT)
+  expect((await drawnPool($, 'thinking', 'edit')).sort()).toEqual(sortedPool('edit'))
+  edit.release()
+  bash.release()
+  await Promise.all([edit.settled, bash.settled])
+})
+
+test('streamed Bash input counts as shell before the call starts', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  const ended = { turnId: 't1', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null }
+  on('turn.step', async function* () {
+    yield { kind: 'tool' as const, index: 0, id: 'toolu_1', name: 'Bash' }
+    // Held open: the test closes the step.
+    await new Promise<void>(() => {})
+
+    return ended
+  })
+
+  const step = $.turn.step({ turnId: 't1', index: 0, model: 'test', messageCount: 1 })
+  await step.next()
+  expect((await drawnPool($, 'thinking', 'shell')).sort()).toEqual(sortedPool('shell'))
+  await step.return(ended)
+  expect((await drawnPool($, 'thinking', 'thinking')).sort()).toEqual(sortedPool('thinking'))
+})
+
+test('in Night City auto, row 1 draws from the Night City pool exactly while the picked reel is breach', { timeoutMs: 30_000 }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  await sbsCommand($, 'theme nightcity')
+  const thinking = poolFor('thinking').map(entry => entry.reel)
+  // One instance that plays breach and one that plays another thinking reel:
+  // the bag holds three, so within three.
+  const kept = new Map<'breach' | 'other', Awaited<ReturnType<typeof spinnerOn>>>()
+
+  for (let k = 0; k < 3 && kept.size < 2; k += 1) {
+    const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE, requestId: `nc-${k}` })
+    const first = await reelOf(ui)
+    const kind = first === 'breach' ? 'breach' : 'other'
+    expect(thinking).toContain(first)
+
+    if (kept.has(kind)) {
+      await ui.unmount()
+    } else {
+      kept.set(kind, ui)
+    }
+  }
+
+  expect([...kept.keys()].sort()).toEqual(['breach', 'other'])
+  const resolved = new Map([...kept.keys()].map(kind => [kind, 0]))
+
+  // A loop end may change the reel; the phrase source follows it.
+  for (let frame = 0; frame < 200; frame += 1) {
+    for (const [kind, ui] of kept) {
+      const { words } = await drawnLine(ui)
+      const reel = await reelOf(ui)
+
+      if (NIGHT_CITY_PHRASES.includes(words) || SPINNER_PHRASES.thinking.includes(words)) {
+        resolved.set(kind, resolved.get(kind)! + 1)
+        expect(reel === 'breach' ? NIGHT_CITY_PHRASES : SPINNER_PHRASES.thinking, `${kind}: ${reel} at frame ${frame}`).toContain(words)
+      }
+    }
+
+    await clock.advance(125)
+  }
+
+  for (const [kind, count] of resolved) expect(count, kind).toBeGreaterThanOrEqual(10)
+  for (const ui of kept.values()) await ui.unmount()
+})
+
+test('a Bash call that rejects is removed from the running-tool list', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  on('tool.call', async () => {
+    throw new Error('the run failed')
+  })
+  await $.tool.call(BASH).then(
+    () => undefined,
+    () => undefined,
+  )
+
+  const drawn = await drawnPool($, 'thinking', 'thinking')
+  expect(drawn.sort()).toEqual(['breach', 'dontpanic:deep-thought', 'hokuto:seven-stars'])
+  expect(drawn).not.toContain('digitalrain')
+  expect(drawn).not.toContain('lightcycles')
+})
+
+test('a reel is picked when the spinner first appears and at each loop end', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE, requestId: 'looping' })
+  const first = await reelOf(ui)
+  expect(poolFor('thinking').map(entry => entry.reel)).toContain(first)
+
+  const { loop } = await variantOf(ui)
+  await clock.advance((loop - 1) * 125)
+  expect(await reelOf(ui)).toBe(first)
+  // The draw where the frame reaches the loop: the bag never repeats back to back.
+  await clock.advance(125)
+  const next = await reelOf(ui)
+  expect(poolFor('thinking').map(entry => entry.reel)).toContain(next)
+  expect(next).not.toBe(first)
+  await ui.unmount()
+})
+
+test('on a context change the reel finishes its current phase, then switches', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const start = heldCalls($, on)
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE, requestId: 'switching' })
+  const first = await reelOf(ui)
+  const variant = await variantOf(ui)
+  const edit = await start(EDIT)
+  // The first tick after the call draws frame 1.
+  const end = holdEnd(variant, 1)
+
+  for (let frame = 1; frame < end; frame += 1) {
+    await clock.advance(125)
+    expect(await reelOf(ui), `frame ${frame}`).toBe(first)
+  }
+
+  await clock.advance(125)
+  expect(poolFor('edit').map(entry => entry.reel)).toContain(await reelOf(ui))
+  edit.release()
+  await edit.settled
+  await ui.unmount()
+})
+
+test('a reel in the new pool plays on', { timeoutMs: 30_000 }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const start = heldCalls($, on)
+  let ui: Awaited<ReturnType<typeof spinnerOn>> | undefined
+
+  for (let k = 0; k < 3 && ui === undefined; k += 1) {
+    const candidate = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE, requestId: `on-${k}` })
+
+    if ((await reelKey(candidate)) === 'reel:breach:run') {
+      ui = candidate
+    } else {
+      await candidate.unmount()
+    }
+  }
+
+  expect(ui).toBeDefined()
+  const { loop, beats } = reelNamed('breach')!.variants.run!
+  // Frame 12 lies in [beats[0].at + 12, beats[1].at): the opening catchphrase is past.
+  const at = beats[0]!.at + 12
+  expect(at).toBeLessThan(beats[1]!.at)
+  await clock.advance(at * 125)
+  const bash = await start(BASH)
+
+  for (let frame = at; frame < loop; frame += 1) {
+    expect(await reelKey(ui!), `frame ${frame}`).toBe('reel:breach:run')
+    expect((await drawnLine(ui!)).words, `frame ${frame}`).not.toBe(beats[0]!.phrase)
+    await clock.advance(125)
+  }
+
+  bash.release()
+  await bash.settled
+  await ui!.unmount()
+})
+
+test('a second context change during the hold does not move its end', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const start = heldCalls($, on)
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE, requestId: 'twice' })
+  const first = await reelOf(ui)
+  const variant = await variantOf(ui)
+  expect(1).toBeLessThan(variant.beats[1]!.at)
+  const edit = await start(EDIT)
+  const end = holdEnd(variant, 1)
+  // Up to two frames before the hold's end, then the second change.
+  await clock.advance((end - 2) * 125)
+  expect(await reelOf(ui)).toBe(first)
+  const web = await start(WEB_FETCH)
+  await clock.advance(125)
+  expect(await reelOf(ui)).toBe(first)
+  await clock.advance(125)
+  expect(poolFor('web').map(entryText)).toContain(asEntry(await reelKey(ui), poolFor('web')))
+  web.release()
+  edit.release()
+  await Promise.all([web.settled, edit.settled])
+  await ui.unmount()
+})
+
+test('a change back to the first context during the hold cancels it', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const start = heldCalls($, on)
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE, requestId: 'back' })
+  const key = await reelKey(ui)
+  const variant = await variantOf(ui)
+  // The first frame drawn after the call: in [beats[0].at, beats[1].at - 3).
+  const at = Math.max(1, variant.beats[0]!.at)
+  expect(at).toBeLessThan(variant.beats[1]!.at - 3)
+  await clock.advance((at - 1) * 125)
+  const edit = await start(EDIT)
+  const end = holdEnd(variant, at)
+  expect(end).toBe(variant.beats[1]!.at)
+  await clock.advance((end - 2 - (at - 1)) * 125)
+  edit.release()
+  await edit.settled
+
+  for (let frame = end - 1; frame <= end + 4; frame += 1) {
+    await clock.advance(125)
+    expect(await reelKey(ui), `frame ${frame}`).toBe(key)
+  }
+
+  await ui.unmount()
+})
+
+test('a bag entry with no fixed variant rotates', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  const ghosts: string[] = []
+
+  for (let k = 0; k < 2 * poolFor('other').length && ghosts.length < 2; k += 1) {
+    const key = await firstKey($, 'responding')
+
+    if (key?.startsWith('reel:ghost:')) ghosts.push(key)
+  }
+
+  expect(ghosts).toEqual(['reel:ghost:camo', 'reel:ghost:net-dive'])
+})
+
+test('the bag never repeats within a pool or back to back', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  const bash = await heldCalls($, on)(BASH)
+  const drawn = await drawnPool($, 'thinking', 'shell', 3 * poolFor('shell').length)
+  const size = poolFor('shell').length
+
+  for (let refill = 0; refill < 3; refill += 1) {
+    expect(drawn.slice(refill * size, (refill + 1) * size).sort(), `refill ${refill}`).toEqual(sortedPool('shell'))
+  }
+
+  for (let k = 1; k < drawn.length; k += 1) expect(drawn[k], `draw ${k}`).not.toBe(drawn[k - 1])
+  bash.release()
+  await bash.settled
+})
+
+test('bags reset at session.end with reason clear', { timeoutMs: 30_000 }, async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
+  const bash = await heldCalls($, on)(BASH)
+
+  for (let trial = 0; trial < 20; trial += 1) {
+    await drawnPool($, 'thinking', 'shell', 2)
+    await $.session.end({ reason: 'clear', sessionId: `s${trial}`, resume: { id: `s${trial}` } })
+    expect((await drawnPool($, 'thinking', 'shell')).sort(), `trial ${trial}`).toEqual(sortedPool('shell'))
+  }
+
+  bash.release()
+  await bash.settled
+})
+
+test('the rare reel replaces only a main turn\'s first pick and plays its whole loop through a context change', { timeoutMs: 60_000 }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  let rare = 0
+
+  for (let turn = 0; turn < 1_000 && (turn < 200 || rare === 0); turn += 1) {
+    await $.turn.start({ text: 'go', turnId: `t${turn}` })
+
+    // In alternate turns a subagent's spinner draws before the main one.
+    if (turn % 2 === 1) {
+      await $.turn.start({ text: '', turnId: `a${turn}`, agentId: `agent-${turn}` })
+      expect(await firstKey($, 'thinking', `agent-${turn}`), `agent in turn ${turn}`).not.toStartWith('reel:sauron:')
+    }
+
+    const main = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+    const key = await reelKey(main)
+
+    for (const extra of ['x', 'y']) {
+      expect(await firstKey($, 'thinking', `extra-${turn}-${extra}`), `extra in turn ${turn}`).not.toStartWith('reel:sauron:')
+    }
+
+    if (key === 'reel:sauron:gaze' && rare === 0) {
+      // Its whole loop, while the mode changes under it.
+      const { loop } = reelNamed('sauron')!.variants.gaze!
+
+      for (let frame = 1; frame < loop; frame += 1) {
+        await main.redraw({ word: 'Baking', message: null, suffix: '…', mode: frame % 2 === 0 ? 'thinking' : 'requesting' })
+        await clock.advance(125)
+        expect(await reelKey(main), `frame ${frame}`).toBe('reel:sauron:gaze')
+      }
+
+      await clock.advance(125)
+      expect(await reelKey(main)).not.toStartWith('reel:sauron:')
+    }
+
+    if (key?.startsWith('reel:sauron:')) rare += 1
+    await main.unmount()
+  }
+
+  expect(rare).toBeGreaterThan(0)
+})
+
+test('a tool that starts and ends between draws restarts the long-wait clock', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('tool.call', () => ({ deny: 'done at once' }))
+  const reelAfterHiding = async (requestId: string, hidden: () => Promise<void>) => {
+    await (await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE, requestId })).unmount()
+    await hidden()
+    // Back past its loop: it picks for the context it detects now.
+    const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE, requestId })
+    const reel = await reelOf(ui)
+    await ui.unmount()
+
+    return reel
+  }
+
+  // Hidden 60 seconds in one state: long-wait.
+  expect(poolFor('long-wait').map(entry => entry.reel)).toContain(await reelAfterHiding('steady', () => clock.advance(60_000)))
+
+  // A Bash call halfway through, with no draw while it ran: the clock restarts.
+  const reel = await reelAfterHiding('interrupted', async () => {
+    await clock.advance(30_000)
+    await $.tool.call(BASH)
+    await clock.advance(30_000)
+  })
+  expect(poolFor('thinking').map(entry => entry.reel)).toContain(reel)
 })

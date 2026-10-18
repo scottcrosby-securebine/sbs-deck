@@ -2,14 +2,14 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import { artRuns, drawFrame } from './canvas'
-import type { Run } from './canvas'
+import type { Reel, Run } from './canvas'
 import { cleanLine, colorLine } from './color'
 import { LEGACY_REELS, NEW_REELS, reelNamed, unindexedLines } from './library'
-import { nextVariant } from './picker'
-import type { Context } from './picker'
+import { contextOf, drawFromBag, holdEnd, nextVariant, poolOf, rollsRare } from './picker'
+import type { Bags, Context } from './picker'
 import { endStep, newTurn, readoutText, withEffort } from './readout'
 import type { TurnStats } from './readout'
-import { AUTO, animationFor, decrypt, phraseFor } from './spinner'
+import { AUTO, decrypt, phraseFor } from './spinner'
 import type { PhraseSource, SpinnerMode } from './spinner'
 import { ROLES, THEME_NAMES, cutsCorners } from './theme'
 import type { Role, ThemeName } from './theme'
@@ -331,7 +331,8 @@ export const register: Register = on => {
   // Quiet: each tool call is one line saying what it is for, and its output is
   // not drawn unless it failed.
   let isQuiet = true
-  // Which animation follows the spinner's phrase.
+  // The reel pinned everywhere by name, or auto (picked by what Claude is
+  // doing), or off.
   let animation = AUTO
   // Reel files the index does not export yet, found at session start.
   let unindexed: string[] = []
@@ -394,6 +395,13 @@ export const register: Register = on => {
   const lastDrawn = new Map<string, number>()
   const steady = new Map<string, { key: string; since: number }>()
   const variantTurns = new Map<string, number>()
+  // One shuffle bag per context, shared by every spinner in the session, and
+  // whether the main spinner's next first pick rolls for a rare reel.
+  const bags: Bags = new Map()
+  let pendingRareRoll = false
+  // A tool starting or ending restarts the long-wait clocks, even between two
+  // draws. A subagent's spinner is always in agents, so its clock never counts.
+  const toolChanged = () => steady.clear()
   // Who is shown beside OPERATOR: the account signed in to Claude Code, by its
   // email, read again at every turn so a new sign-in shows at once. The
   // machine's login name stands in where no account can be read.
@@ -450,8 +458,11 @@ export const register: Register = on => {
       animation = savedAnimation
     }
 
-    // A change of animation starts every spinner afresh.
+    // A change of animation starts every spinner afresh, and a new session
+    // starts with fresh bags and rotations.
     plays.clear()
+    bags.clear()
+    variantTurns.clear()
 
     unindexed = []
 
@@ -657,8 +668,9 @@ export const register: Register = on => {
       return next(e)
     }
 
-    // The main spinner picks afresh; a subagent's keeps its own. Any instance
-    // not drawn for a while is dropped.
+    // The main spinner picks afresh, its first pick rolling for a rare reel; a
+    // subagent's keeps its own. Any instance not drawn for a while is dropped.
+    pendingRareRoll = true
     runningTools.length = 0
     inputTool = undefined
     streaming.delete('main')
@@ -738,6 +750,7 @@ export const register: Register = on => {
             chars += chunk.json.length
           } else if (chunk.kind === 'tool' && loop === 'main') {
             inputTool = chunk.name
+            toolChanged()
           }
 
           streaming.set(loop, chars)
@@ -757,6 +770,7 @@ export const register: Register = on => {
 
       if (loop === 'main') {
         inputTool = undefined
+        toolChanged()
       }
 
       try {
@@ -782,6 +796,7 @@ export const register: Register = on => {
 
     const running = { id: e.tool_use_id ?? '', name: e.tool }
     runningTools.push(running)
+    toolChanged()
 
     try {
       return await next(e)
@@ -791,7 +806,20 @@ export const register: Register = on => {
       if (at !== -1) {
         runningTools.splice(at, 1)
       }
+
+      toolChanged()
     }
+  })
+
+  // `/clear` ends the conversation and fires no session.start: the bags and
+  // rotations start afresh here instead.
+  on('session.end', ($, e, next) => {
+    if (e.reason === 'clear') {
+      bags.clear()
+      variantTurns.clear()
+    }
+
+    return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -1016,9 +1044,105 @@ export const register: Register = on => {
     }
 
     const tier = tierFor(e.surface, e.viewport, animation === 'off')
-    // Until the picker plays reels in auto, the playing reel is the pinned one.
-    const source: PhraseSource =
-      theme === 'nightcity' && tier !== 'one-row' && NIGHT_CITY_REELS.includes(animation) ? 'nightcity' : e.props.mode
+    const loop = loopKeyOf(e.requestId, stats)
+    const isSubagent = loop !== 'main'
+    const tool = isSubagent ? undefined : currentTool()
+    // The long-wait clock: since this spinner's mode or running tool last changed.
+    const steadyKey = `${e.props.mode}:${tool ?? ''}`
+    let since = steady.get(instance)
+
+    if (since?.key !== steadyKey) {
+      since = { key: steadyKey, since: now }
+      steady.set(instance, since)
+    }
+
+    const context = contextOf({ mode: e.props.mode, isSubagent, tool, unchangedMs: now - since.since })
+
+    // The reel plays from this spinner's own frame 0; a loop's end starts the
+    // next loop afresh, however many loops passed while it was hidden.
+    let play: Play | undefined
+    let art: Run[][] | undefined
+    let catchphrase: string | undefined
+
+    if (tier !== 'one-row') {
+      const pinned = animation === AUTO ? undefined : (reelNamed(animation) ?? LEGACY_REELS[0]!)
+      // A play from frame 0 with a fresh seed, in the bag entry's variant or
+      // else the reel's next (PD26).
+      const startPlay = (reel: Reel, variant: string | undefined, isRare: boolean): Play => {
+        const started: Play = {
+          reel: reel.name,
+          variant: variant ?? nextVariant(reel, variantTurns),
+          seed: Math.floor(Math.random() * 2 ** 31),
+          startedAt: now,
+          context,
+          holdUntil: undefined,
+          isRare,
+        }
+        plays.set(instance, started)
+
+        return started
+      }
+      const fromBag = () => {
+        const entry = drawFromBag(bags, context, poolOf(context, NEW_REELS), Math.random)
+
+        return startPlay(reelNamed(entry.reel)!, entry.variant, false)
+      }
+
+      play = plays.get(instance)
+
+      if (pinned !== undefined) {
+        if (play?.reel !== pinned.name) {
+          play = startPlay(pinned, undefined, false)
+        }
+      } else if (play === undefined) {
+        // A main turn's first pick by the main spinner: about 1 in 50 plays a
+        // rare reel whole instead.
+        if (pendingRareRoll && !isSubagent) {
+          pendingRareRoll = false
+          const rares = NEW_REELS.filter(r => r.rare)
+
+          if (rares.length > 0 && rollsRare(Math.random())) {
+            play = startPlay(rares[Math.floor(Math.random() * rares.length)]!, undefined, true)
+          }
+        }
+
+        play ??= fromBag()
+      }
+
+      const playing = play
+      const variant = reelNamed(playing.reel)?.variants[playing.variant]
+      let frame = Math.floor((now - playing.startedAt) / TICK_MS)
+
+      if (frame >= (variant?.loop ?? Infinity)) {
+        // The pin plays on in its next variant; auto picks for the context it
+        // detects now, which ends a rare play.
+        play = pinned !== undefined ? startPlay(pinned, undefined, false) : fromBag()
+        frame = 0
+      } else if (pinned === undefined && !playing.isRare && variant !== undefined) {
+        // A context whose pool holds the playing reel lets it play on and
+        // cancels a hold. Any other plays the reel to the end of its phase or
+        // loop, an end a further change does not move, then picks (PD8).
+        if (context === playing.context || poolOf(context, NEW_REELS).some(entry => entry.reel === playing.reel)) {
+          playing.context = context
+          playing.holdUntil = undefined
+        } else {
+          playing.holdUntil ??= holdEnd(variant, frame)
+
+          if (frame >= playing.holdUntil) {
+            play = fromBag()
+            frame = 0
+          }
+        }
+      }
+
+      const reel = reelNamed(play.reel) ?? LEGACY_REELS[0]!
+      catchphrase = reel.variants[play.variant]?.beats.find(beat => frame >= beat.at && frame < beat.at + BEAT_FRAMES)?.phrase
+      art = artRuns(drawFrame(reel, play.variant, frame, play.seed, tier === 'full' ? 32 : 16), theme)
+    }
+
+    // The Night City pool shows only while one of its reels plays, so never
+    // where no reel plays.
+    const source: PhraseSource = theme === 'nightcity' && play !== undefined && NIGHT_CITY_REELS.includes(play.reel) ? 'nightcity' : e.props.mode
     let shown = phrasesShown.get(instance)
 
     // A new phrase whenever the mode or the pool changes.
@@ -1031,42 +1155,6 @@ export const register: Register = on => {
     const age = Math.floor((now - shown.since) / TICK_MS)
     const phrase = phraseFor(source, shown.pick)
 
-    // The reel plays from this spinner's own frame 0; a loop's end starts the
-    // next loop afresh, however many loops passed while it was hidden.
-    let play: Play | undefined
-    let art: Run[][] | undefined
-    let catchphrase: string | undefined
-
-    if (tier !== 'one-row') {
-      const reel = reelNamed(animationFor(animation, phrase)) ?? LEGACY_REELS[0]!
-      play = plays.get(instance)
-
-      if (play?.reel !== reel.name) {
-        play = {
-          reel: reel.name,
-          variant: nextVariant(reel, variantTurns),
-          seed: Math.floor(Math.random() * 2 ** 31),
-          startedAt: now,
-          context: 'other',
-          holdUntil: undefined,
-          isRare: false,
-        }
-        plays.set(instance, play)
-      }
-
-      let frame = Math.floor((now - play.startedAt) / TICK_MS)
-
-      if (frame >= (reel.variants[play.variant]?.loop ?? Infinity)) {
-        play.startedAt = now
-        frame = 0
-        play.seed = Math.floor(Math.random() * 2 ** 31)
-        play.variant = nextVariant(reel, variantTurns)
-      }
-
-      catchphrase = reel.variants[play.variant]?.beats.find(beat => frame >= beat.at && frame < beat.at + BEAT_FRAMES)?.phrase
-      art = artRuns(drawFrame(reel, play.variant, frame, play.seed, tier === 'full' ? 32 : 16), theme)
-    }
-
     const rowOne = rowOneText({
       message: e.props.message,
       word: e.props.word,
@@ -1074,7 +1162,6 @@ export const register: Register = on => {
       phrase: animation === 'off' ? phrase : decrypt(phrase, age, Math.floor(now / TICK_MS)),
       catchphrase,
     })
-    const loop = loopKeyOf(e.requestId, stats)
     const rows = layoutLine({
       theme,
       tier,

@@ -602,42 +602,7 @@ export const ANIMATIONS: Readonly<Record<string, (frame: number) => string>> = {
     }).join(''),
 }
 
-// In `auto`, a phrase gets a themed animation only where its own words call
-// for one: rain for the digital rain, streaks for the jump to lightspeed, a
-// sonar ping for a sweep. Every other phrase keeps the plain bar. The first
-// rule that matches wins.
 export const AUTO = 'auto'
-
-const THEMES: readonly (readonly [string, RegExp])[] = [
-  ['rain', /\brain\b|Seeing the code/i],
-  ['invader', /\bbugs?\b|Mobile Infantry/i],
-  ['dial', /Dialing|chevron/i],
-  ['shield', /^Raising (shields|the Holtzman shield|the attack barrier)/i],
-  ['warp', /lightspeed|Punching it|Kessel|space fold|Folding space|Improbability|88 miles|Jumping the fleet|through time|Adama Maneuver/i],
-  ['comet', /tightbeam|Death Star plans|^Beaming|Needlecasting|Farcasting|^Firing the (beam rifle|main gun|PDCs)/i],
-  ['fire', /^(Lighting|Burning)\b|reactor|heresy/i],
-  ['sonar', /Pinging|motion tracker|Sweeping the ports|Probing|tricorder|Jedi archives/i],
-  ['morse', /^(Hailing|Transmitting|Broadcasting)\b|hailing frequencies|recognition codes|Opening the uplink|^Uplinking|Tycho Station/i],
-  ['binary', /Decrypting|cipher|Decoding the transmission|Hacking|Slicing|\bICE\b|Breach Protocol|Kuang|UNIX|^Executing the quickhack|Breaching the attack barrier/i],
-  ['glitch', /Jacking|the Grid|Metaverse|cyberspace|Black Sun|Diving the net|Minovsky/i],
-  ['stars', /Plotting the burn|Plotting a course|Calculating the jump|jump coordinates|way to Earth|times faster/i],
-  ['life', /Computing|computations|Calculating|psychohistory|Prime Radiant/i],
-  ['orbit', /docking|the colony/i],
-  ['cylon', /Cylon|\bHUD\b|Sarah Connor|Terminating|Scanning|Voight-Kampff|baseline test/i],
-  ['load', /^(Loading|Reloading|Booting|Uploading|Compiling|Spooling|Priming|Charging)\b|matter compiler/i],
-  ['wave', /sandworm|the worm|deep desert|Deep diving|Surfacing|\bspice\b/i],
-  ['helix', /sleeve|cortical stack|neurachem|protoculture|neural handshake|sync ratio|Newtype|the Drift/i],
-  ['pulse', /^(Handshaking|Listening)\b|Phoning home|ansible|thumper/i],
-  ['eq', /Overclocking|Rerouting power|Reversing the polarity|Minmei|with the Voice/i],
-]
-
-export function animationFor(choice: string, phrase: string): string {
-  if (choice !== AUTO) {
-    return choice
-  }
-
-  return THEMES.find(([, pattern]) => pattern.test(phrase))?.[0] ?? 'bar'
-}
 
 // Night City's own pool, shown only in that theme while Breach Protocol or
 // Sandevistan plays, so each phrase appears with its graphic.
