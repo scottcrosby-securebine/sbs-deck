@@ -42,19 +42,21 @@ const M = (from: Slot, t: number, to: Slot = 'base'): Ink => ({ from, to, t })
 
 type Stream = { s: number; v: number }
 
-// Rain levels, dark to bright: the cell's plate and glyph ink. Up to level 5
-// each step is under 0.10 in luminance in both themes, in truecolor and at 256
-// colors, so cells glowing back a level a frame from under the script never
-// count, however many glow together. The steps into levels 6 and 7 are under
-// 0.10 in truecolor only, and few cells take them on one frame. A trail dims a
-// level a frame and never brightens by 0.10 on the way, so it counts at most once.
+// Rain levels, dark to bright: the cell's plate and glyph ink. Below the head,
+// each glyph is brighter than its plate or has none, so the trail reads as
+// code. Up to level 5 each step is under 0.10 in luminance in both themes, in
+// truecolor and at 256 colors, so cells glowing back a level a frame from under
+// the script never count, however many glow together. The step into level 6 is
+// over 0.10, so the rain never glows back into it; a cell reaches it only as its
+// head falls on. A trail dims a level a frame and never brightens by 0.10 on the
+// way, so it counts at most once.
 const LEVELS: readonly (readonly [Ink | null, Ink])[] = [
   [null, M('cool', 0.75)],
-  [M('cool', 0.75), M('cool', 0.75)],
+  [null, M('cool', 0.5)],
+  [M('cool', 0.75), M('cool', 0.5)],
   [M('cool', 0.75), M('cool', 0.25)],
   [M('cool', 0.5), M('cool', 0.25)],
-  [M('cool', 0.25), M('cool', 0.5)],
-  [M('cool', 0.25), M('cool', 0.25)],
+  [M('cool', 0.75), 'cool'],
   [M('cool', 0.25), 'cool'],
   ['cool', 'base'], // the head
 ]
@@ -270,7 +272,7 @@ function draw(c: Canvas, f: number, seed: number) {
       // cell up to 3 frames behind its neighbors, so few cells step up together.
       // It glows back no higher than level 5, and stays there while a head
       // lights the cell above that, so it never takes the step into level 6,
-      // the one over 0.10 at 256 colors.
+      // the one over 0.10.
       const lag = (col + 2 * row) % 4
       const freeAt = (g: number) => { let n = 0; while (n < 7 + lag && !veiled(g - n, cell)) n++; return n - lag }
       const free = freeAt(f)
