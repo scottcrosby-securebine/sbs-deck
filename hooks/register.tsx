@@ -11,7 +11,7 @@ import { endStep, newTurn, readoutText, withEffort } from './readout'
 import type { TurnStats } from './readout'
 import { AUTO, decrypt, phraseFor } from './spinner'
 import type { PhraseSource, SpinnerMode } from './spinner'
-import { ROLES, THEME_NAMES, cutsCorners } from './theme'
+import { CUT_CORNER_TERMINALS, ROLES, THEME_NAMES, cutsCorners } from './theme'
 import type { Role, ThemeName } from './theme'
 import { layoutLine, rowOneText, tierFor } from './workline'
 
@@ -473,7 +473,7 @@ export const register: Register = on => {
       WT_SESSION: await $.env.get('WT_SESSION'),
       KITTY_WINDOW_ID: await $.env.get('KITTY_WINDOW_ID'),
       ALACRITTY_WINDOW_ID: await $.env.get('ALACRITTY_WINDOW_ID'),
-    })
+    }, [...CUT_CORNER_TERMINALS, ...(await $.env.get('SBS_CUT_CORNERS') ?? '').split(',')])
 
     const savedAnimation = await $.store.get('animation')
 
@@ -914,7 +914,7 @@ export const register: Register = on => {
 
     // Night City cuts the top-left and bottom-right corners: overlays drawn
     // after the border, one placed on the corner, one pulled up onto the last
-    // row (spike B2: both land, the sides stay whole).
+    // row. A live check showed both land and the sides stay whole.
     return (
       <Box flexDirection="column">
         {box}
@@ -1097,7 +1097,7 @@ export const register: Register = on => {
     if (tier !== 'one-row') {
       const pinned = animation === AUTO ? undefined : (reelNamed(animation) ?? LEGACY_REELS[0]!)
       // A play from frame 0 with a fresh seed, in the bag entry's variant or
-      // else the reel's next (PD26).
+      // else the reel's next in its rotation.
       const startPlay = (reel: Reel, variant: string | undefined, isRare: boolean): Play => {
         const started: Play = {
           reel: reel.name,
@@ -1151,7 +1151,7 @@ export const register: Register = on => {
       } else if (pinned === undefined && !playing.isRare && variant !== undefined) {
         // A context whose pool holds the playing reel lets it play on and
         // cancels a hold. Any other plays the reel to the end of its phase or
-        // loop, an end a further change does not move, then picks (PD8).
+        // loop, an end a further change does not move, then picks.
         if (context === playing.context || poolOf(context, NEW_REELS).some(entry => entry.reel === playing.reel)) {
           playing.context = context
           playing.holdUntil = undefined

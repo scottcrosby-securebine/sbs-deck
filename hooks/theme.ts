@@ -132,6 +132,8 @@ export function blend(a: string, b: string, t: number): string {
 
 // The terminals whose font lines `╱` up with the box lines, by the name
 // cutsCorners gives them. Filled from the owner's checks; empty until then.
+// SBS_CUT_CORNERS, a comma-separated list of names, adds terminals to it for
+// one session, to try one before it is listed.
 export const CUT_CORNER_TERMINALS: readonly string[] = []
 
 // Whether Night City's box may cut its corners here: never under tmux, else

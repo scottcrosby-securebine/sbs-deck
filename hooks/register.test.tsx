@@ -9,6 +9,7 @@ import { contextOf, holdEnd, poolOf } from './picker'
 import type { Context, Entry } from './picker'
 import { HALF_RATE } from './reels/legacy'
 import { ANIMATIONS, NIGHT_CITY_PHRASES, SPINNER_PHRASES, decrypt, phraseFor, scanBar } from './spinner'
+import { CUT_CORNER_TERMINALS } from './theme'
 import type { SpinnerMode } from './spinner'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -2212,7 +2213,37 @@ test('Night City boxes stay square on an unchecked terminal', async ($, on) => {
   }
 })
 
-// The picker in auto (s5.5). No test here but the rare one runs a main
+test('Night City boxes cut their corners on a checked terminal, and not in the desktop app', async ($, on) => {
+  // The shipped list is empty until terminals are checked: SBS_CUT_CORNERS counts a test name as checked.
+  expect(CUT_CORNER_TERMINALS).not.toContain('sbs-test-checked-terminal')
+  const variables: Record<string, string> = { TERM_PROGRAM: 'sbs-test-checked-terminal', SBS_CUT_CORNERS: 'sbs-test-other,sbs-test-checked-terminal' }
+  mock.store(on)
+  engineUserMessage(on)
+  on('env.get', ($, e) => ({ value: variables[e.name] }))
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  await sbsCommand($, 'theme nightcity')
+  for (const [surface, cut] of [['terminal', true], ['desktop', false]] as const) {
+    await $.session.start({ cwd: '/', surface, isInteractive: true })
+    const ui = await $.ui.mount({
+      plugin: 'sbs-deck',
+      surface,
+      component: 'UserMessage',
+      props: { text: 'hello there', origin: { kind: 'composer' }, isExpanded: false },
+    })
+    expect(await ui.find({ type: 'Text', text: 'OPERATOR' }), surface).toBeDefined()
+    if (cut) {
+      expect(await ui.find({ key: 'cut-tl' }), surface).toBeDefined()
+      expect(await ui.find({ key: 'cut-br' }), surface).toBeDefined()
+    } else {
+      expect(await ui.find({ key: 'cut-tl' }), surface).toBeUndefined()
+      expect(await ui.find({ key: 'cut-br' }), surface).toBeUndefined()
+    }
+    await ui.unmount()
+  }
+})
+
+// The picker in auto. No test here but the rare one runs a main
 // `turn.start`, so no rare roll decides an outcome, and each starts with fresh
 // bags. Pools overlap, so a pool is checked by drawing as many fresh instances
 // as it holds: one full bag, every entry once in some order.
