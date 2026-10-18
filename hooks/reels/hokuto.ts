@@ -16,7 +16,7 @@ import { noise } from '../canvas'
 // seven-stars: under a blood red sky the seven stars of the Big Dipper glow
 // in and blaze on HOKUTO SHICHISEI; the constellation draws itself, handle
 // to bowl, and closes the bowl. Alcor, the death omen star, kindles red
-// beside Mizar. Ken strikes seven points. OMAE WA MOU SHINDEIRU: the held
+// beside Mizar. Ken strikes seven points. HE IS ALREADY DEAD: the held
 // moment, the thug throbbing at 1.3 Hz. NANI?!: he jolts, then swells,
 // cracking yellow, faster, until HIDEBU!: the burst. The sky clears and a
 // new thug walks in.
@@ -33,7 +33,7 @@ const BLUR = [41, 72] as const // flurry: the hundred fists
 const POP = 76 // flurry: the burst
 const WALK = 8 // frames a new thug takes to walk in
 const BLAZE = 8 // seven-stars: the stars blaze
-const HELD = 44 // seven-stars: OMAE WA MOU SHINDEIRU
+const HELD = 44 // seven-stars: HE IS ALREADY DEAD
 const NANI = 80 // seven-stars: the jolt
 const HIDEBU = 116 // seven-stars: the burst
 
@@ -367,7 +367,7 @@ export default {
       loop: SEVEN,
       beats: [
         { at: BLAZE, phrase: 'HOKUTO SHICHISEI' },
-        { at: HELD, phrase: 'OMAE WA MOU SHINDEIRU' },
+        { at: HELD, phrase: 'HE IS ALREADY DEAD' },
         { at: NANI, phrase: 'NANI?!' },
         { at: HIDEBU, phrase: 'HIDEBU!' },
       ],
