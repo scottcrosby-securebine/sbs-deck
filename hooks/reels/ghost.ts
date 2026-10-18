@@ -8,9 +8,10 @@ import { noise } from '../canvas'
 // camo: a night skyline of dark red towers with lit windows. The Major stands
 // on a roof ledge in yellow and lets her coat fall. THERMOPTIC CAMO: the camo
 // wipes down her body top to bottom behind a yellow scan line, leaving a
-// see-through aqua outline that shimmers. She tips back off the roof and drops;
-// the city streams up past her as she falls, her outline breaks up and is gone,
-// and the lights go out at street level.
+// see-through, hollow aqua outline that shimmers. She tips back off the roof
+// and drops down her tower's dark face while the lit city streams up past her
+// on both sides; her outline breaks up and is gone, and the lights go out at
+// street level.
 //
 // net-dive: a dark field of hex digits. A diver drops into the center.
 // DIVE // SECTION 9: the splash, two yellow wavefronts racing out to the edges
@@ -24,7 +25,9 @@ import { noise } from '../canvas'
 // along its links, each lighting the cell it crosses, and it dims to dark.
 //
 // The seed picks the skyline, windows, where she stands and where the coat
-// falls; the digits and the sweep's side; the packets' routes and times.
+// falls; the digits the splash and echoes write, and the sweep's side; the
+// packets' routes and times. The idle field and the sweep's digits are
+// seed-free, so the field reads the same across a loop wrap.
 
 const LOOP = 48
 
@@ -32,7 +35,7 @@ const LOOP = 48
 const WIPE = 12 // the camo wipe starts: THERMOPTIC CAMO
 const TIP = 20 // she tips off the ledge
 const FALL = 22 // the camera follows her down: the city streams up a pixel a frame
-const FADE = [30, 40] as const // her outline breaks up and is gone
+const FADE = [36, 44] as const // her outline breaks up and is gone
 const DARK = 46 // the street: the lights are out
 
 // net-dive
@@ -46,8 +49,9 @@ const FLOW = 18 // the lattice starts to flow outward
 
 const HEX = '0123456789ABCDEF'
 
-// The Major, 6 dots wide and 7 tall: standing, then spread as she falls.
-const STAND = ['..XX..', '..XX..', '.XXXX.', 'X.XX.X', '..XX..', '.X..X.', '.X..X.']
+// The Major, 6 dots wide and 7 tall: standing (torso and coat filled), then
+// spread as she falls. The camo keeps only a pose's edge dots.
+const STAND = ['..XX..', '..XX..', '.XXXX.', 'XXXXXX', '.XXXX.', '.X..X.', '.X..X.']
 const SPREAD = ['X.XX.X', '.XXXX.', '..XX..', '..XX..', '.X..X.', 'X....X', '......']
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
@@ -88,7 +92,11 @@ function camo(c: Canvas, f: number, seed: number) {
   }
 
   for (let col = 0; col < 32; col++) {
-    if (inZone(col)) {
+    if (inZone(col) && s > 0) {
+      // The drop: she falls down her tower's dark face, faded in over two frames,
+      // while the lit facades stream past on both sides.
+      for (let r = 0; r < 2; r++) c.bg(col, r, c.mix('deep', 'base', f === FALL ? 0.75 : 0.5))
+    } else if (inZone(col)) {
       // Plates, so her dots can sit over the city: a cell takes its brighter pixel.
       for (let r = 0; r < 2; r++) {
         const top = world(col, s + 2 * r), bottom = world(col, s + 2 * r + 1)
@@ -114,13 +122,15 @@ function camo(c: Canvas, f: number, seed: number) {
     const tilt = f >= TIP && f < FALL ? 1 : 0
     const front = f - WIPE // the camo front's dot row; above it she is camo
     const fade = clamp((f - FADE[0]) / (FADE[1] - FADE[0]), 0, 1)
+    const filled = (y: number, i: number) => pose[y]?.[i] === 'X'
+    const edge = (y: number, i: number) => !(filled(y - 1, i) && filled(y + 1, i) && filled(y, i - 1) && filled(y, i + 1))
     pose.forEach((line, y) => {
       for (let i = 0; i < line.length; i++) {
         if (line[i] !== 'X') continue
         const x = x0 + i + (y < 4 ? tilt : 0)
         if (y < front) {
-          // Camo: an aqua outline that shimmers, each dot flipping within its cell.
-          if (noise(seed, 9, i, y) < fade) continue
+          // Camo: a hollow aqua outline that shimmers, each dot flipping within its cell.
+          if (!edge(y, i) || noise(seed, 9, i, y) < fade) continue
           const flip = ((f >> 1) + y + i) % 3 === 0 ? 1 : 0
           c.put(x ^ flip, y, 'cool', 2)
         } else {
@@ -178,7 +188,8 @@ function netDive(c: Canvas, f: number, seed: number) {
       c.bg(col, r, look[0])
       // The diver drops into the center, frames 2 to 7; its cells hold dots, not digits.
       const diving = f >= 2 && f < SPLASH && (col === center || col === center + 1)
-      if (!diving) c.glyph(col, r, HEX[Math.floor(noise(seed, 3, col, r, gen) * 16)]!, look[1])
+      const digit = gen === 0 || gen === waves.length ? noise(3, col, r) : noise(seed, 3, col, r, gen)
+      if (!diving) c.glyph(col, r, HEX[Math.floor(digit * 16)]!, look[1])
     }
   }
   if (f >= 2 && f < SPLASH) {
