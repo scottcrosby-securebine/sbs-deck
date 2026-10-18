@@ -4,7 +4,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import { artRuns, drawFrame } from './canvas'
 import type { Reel, Run } from './canvas'
 import { cleanLine, colorLine } from './color'
-import { LEGACY_REELS, NEW_REELS, reelNamed, unindexedLines } from './library'
+import { LEGACY_REELS, NEW_REELS, offReels, reelNamed, unindexedLines, unlistedFields } from './library'
 import { contextOf, drawFromBag, holdEnd, nextVariant, poolOf, rollsRare } from './picker'
 import type { Bags, Context } from './picker'
 import { endStep, newTurn, readoutText, withEffort } from './readout'
@@ -302,7 +302,13 @@ async function sbsforgeAgentName($: EngineInterface): Promise<string | undefined
   }
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  // The launch reels switched off in /config, and the ones auto picks from. A
+  // change there reloads the mod, so this runs again with fresh bags.
+  const off = offReels(options)
+  const onReels = NEW_REELS.filter(r => !off.includes(r.name))
+  // Launch reels whose /config field plugin.json does not declare yet.
+  const unlisted = unlistedFields(options)
   // Which reply block opens each turn, so the header draws once per turn and
   // not on every text block between tool calls. Saved to the store as each
   // turn completes and read back at start, so a reload keeps the headers.
@@ -500,6 +506,10 @@ export const register: Register = on => {
       unindexed = []
     }
 
+    if (unlisted.length > 0) {
+      $.ui.toast(`sbs-deck: add to userConfig in .claude-plugin/plugin.json: ${unlisted[0]}${unlisted.length > 1 ? ` (and ${unlisted.length - 1} more: /sbs anim list)` : ''}`)
+    }
+
     const savedOpeners = await $.store.get('turnOpeners')
 
     if (Array.isArray(savedOpeners)) {
@@ -518,7 +528,8 @@ export const register: Register = on => {
     const [what = '', how = ''] = e.args.trim().toLowerCase().split(/\s+/)
     const status = () =>
       `Styling is ${isEnabled ? 'on' : 'off'}; quiet tool rows are ${isQuiet ? 'on' : 'off'}; output coloring is ${isColoring ? 'on' : 'off'}. ` +
-      `Spinner animation: ${animation}. Reply header: ${replyName()}. Theme: ${theme}.`
+      `Spinner animation: ${animation}. Reply header: ${replyName()}. Theme: ${theme}.` +
+      (off.length > 0 ? ` Reels off: ${off.join(', ')}. Turn them back on in /config (search "Reel").` : '')
 
     // On or off as asked; with neither word, the opposite of what it is now.
     const setting = (current: boolean): boolean | undefined =>
@@ -553,9 +564,17 @@ export const register: Register = on => {
     if (what === 'anim' || what === 'ani' || what === 'animation') {
       const listText = () =>
         `Spinner animation is ${animation}. Choose from: auto, off, ` +
-        [...NEW_REELS.map(r => (r.rare ? `${r.name} (rare)` : r.name)), ...LEGACY_REELS.map(r => `${r.name} (legacy)`)].join(', ') +
+        [
+          ...NEW_REELS.map(r => {
+            const marks = [...(r.rare ? ['rare'] : []), ...(off.includes(r.name) ? ['off'] : [])]
+
+            return marks.length > 0 ? `${r.name} (${marks.join(', ')})` : r.name
+          }),
+          ...LEGACY_REELS.map(r => `${r.name} (legacy)`),
+        ].join(', ') +
         '.' +
-        (unindexed.length > 0 ? `\nNot in hooks/reels/index.ts yet. Add:\n${unindexed.join('\n')}` : '')
+        (unindexed.length > 0 ? `\nNot in hooks/reels/index.ts yet. Add:\n${unindexed.join('\n')}` : '') +
+        (unlisted.length > 0 ? `\nNot in .claude-plugin/plugin.json yet. Add to userConfig:\n${unlisted.join('\n')}` : '')
 
       if (how === 'list') {
         return { text: listText() }
@@ -563,15 +582,18 @@ export const register: Register = on => {
 
       let wanted = how
 
-      // With no name, step to the next new reel, skipping the rare ones.
+      // With no name, step to the next new reel after this one, skipping the
+      // rare ones and those switched off in /config.
       if (how === '' || how === 'next') {
         const steps = NEW_REELS.filter(r => !r.rare)
+        const at = steps.findIndex(r => r.name === animation)
+        const next = [...steps.slice(at + 1), ...steps.slice(0, at + 1)].find(r => !off.includes(r.name))
 
-        if (steps.length === 0) {
-          return { text: 'No new reels yet.' }
+        if (next === undefined) {
+          return { text: steps.length === 0 ? 'No new reels yet.' : 'Every new reel is off. Turn one on in /config (search "Reel").' }
         }
 
-        wanted = steps[(steps.findIndex(r => r.name === animation) + 1) % steps.length]!.name
+        wanted = next.name
       } else if (how !== AUTO && how !== 'off' && !reelNamed(how)) {
         return { text: `No animation called "${how}".\n${listText()}` }
       }
@@ -1112,8 +1134,15 @@ export const register: Register = on => {
 
         return started
       }
+      // With every launch reel off, auto plays the legacy bar.
       const fromBag = () => {
-        const entry = drawFromBag(bags, context, poolOf(context, NEW_REELS), Math.random)
+        const pool = poolOf(context, onReels)
+
+        if (pool.length === 0) {
+          return startPlay(LEGACY_REELS[0]!, undefined, false)
+        }
+
+        const entry = drawFromBag(bags, context, pool, Math.random)
 
         return startPlay(reelNamed(entry.reel)!, entry.variant, false)
       }
@@ -1129,7 +1158,7 @@ export const register: Register = on => {
         // rare reel whole instead.
         if (pendingRareRoll && !isSubagent) {
           pendingRareRoll = false
-          const rares = NEW_REELS.filter(r => r.rare)
+          const rares = onReels.filter(r => r.rare)
 
           if (rares.length > 0 && rollsRare(Math.random())) {
             play = startPlay(rares[Math.floor(Math.random() * rares.length)]!, undefined, true)
@@ -1152,7 +1181,7 @@ export const register: Register = on => {
         // A context whose pool holds the playing reel lets it play on and
         // cancels a hold. Any other plays the reel to the end of its phase or
         // loop, an end a further change does not move, then picks.
-        if (context === playing.context || poolOf(context, NEW_REELS).some(entry => entry.reel === playing.reel)) {
+        if (context === playing.context || poolOf(context, onReels).some(entry => entry.reel === playing.reel)) {
           playing.context = context
           playing.holdUntil = undefined
         } else {

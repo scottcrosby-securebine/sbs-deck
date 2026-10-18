@@ -72,6 +72,7 @@ claude plugin install sbs-deck@sbs-deck
 | `/sbs color on`, `/sbs color off` | Pattern coloring of output. Only seen with quiet off |
 | `/sbs theme [securebine\|nightcity]` | The colors the mod draws in. With no name, shows the current theme and the choices. The choice is saved and kept by `/sbs reset`. It also recolors a reel that is already playing. It cannot change Claude Code's own theme: `/sbs theme nightcity` replies with the `install.sh --theme nightcity` command to run, or you can pick it with `/theme` once installed |
 | `/sbs anim [name]` | The reel on the working line. In `auto` (the default) the reel follows what Claude is doing. `/sbs anim <name>` pins one reel, `/sbs anim auto` goes back, `/sbs anim off` stops all motion and draws the one-row line, and `/sbs anim list` prints every name. With no name, or `next`, it steps to the next new reel and skips the rare one. The 22 older animations, `bar`, `wave`, `cylon`, `rain`, `pulse`, `helix`, `load`, `stars`, `sonar`, `fire`, `comet`, `pong`, `invader`, `life`, `warp`, `orbit`, `morse`, `shield`, `binary`, `glitch`, `dial` and `eq`, are still there by name only |
+| `/config`, search `Reel` | One switch per new reel, `Reel: <title> · sbs-deck`, on by default. Enter or Space flips it, or type `/config sbs-deck.reelHokuto=false`. The field is `reel` plus the reel's name with its first letter capitalized. A reel switched off is never picked in `auto`, and `/sbs anim` and `next` step past it. `/sbs anim <name>` still pins it. A context whose reels are all off picks from the rest of the `other` pool, and with every new reel off `auto` plays `bar`. `/sbs anim list` marks off reels `(off)` and `/sbs status` names them. A change reloads the mod at once and starts the shuffle afresh |
 | `/sbs name <name>` | What the reply header calls the assistant, in place of `CLAUDE`. `/sbs name clear` undoes it. Without it, the name comes from the first of: `SBS_AGENT_NAME` in the environment; on the SBSForge platform, the agent's `display_name` in `~/.sbsforge/config/agent.yaml`; the platform's `SBSFORGE_AGENT_NAME`; and otherwise `CLAUDE` |
 
 `/sbs quiet` and `/sbs color` with no second word flip that switch. The
@@ -83,7 +84,8 @@ change it with `/theme`.
 - **Colors**: the role tables in `hooks/theme.ts`. It is the only place a hex
   value may appear.
 - **Labels**: the constants at the top of `hooks/register.tsx`.
-- **Reels**: one file each in `hooks/reels/`. See [`docs/reels.md`](docs/reels.md).
+- **Reels**: one file each in `hooks/reels/`, with a line in `hooks/reels/index.ts`
+  and a `/config` switch in `.claude-plugin/plugin.json`. See [`docs/reels.md`](docs/reels.md).
 - **Icons**: `OPERATOR_ICON` and `ASSISTANT_ICON` in the same file.
 - **Spinner phrases**: the pools in `hooks/spinner.ts`. A test rejects any
   phrase over 28 characters, any non-ASCII character and any duplicate. Add the
@@ -115,8 +117,10 @@ The last command must print nothing: no color value is written outside
   is 16 cells.
 - Red and dark red nearly merge when a terminal rounds to 256 colors.
 - A reel file dropped into `hooks/reels/` also needs its line in
-  `hooks/reels/index.ts`. The mod toasts the line at session start if it is
-  missing, and `/sbs anim list` prints it.
+  `hooks/reels/index.ts` and its `userConfig` field in
+  `.claude-plugin/plugin.json`. The mod toasts either line at session start if
+  it is missing, and `/sbs anim list` prints it. A reel with no field plays as
+  if switched on.
 - Night City's message box cuts its corners only on terminals that have been
   checked to line them up, and the list of those is not filled in yet, so it
   draws square corners everywhere. To try them on a terminal, start Claude Code

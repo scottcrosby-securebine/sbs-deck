@@ -3,5 +3,91 @@
   "version": "1.0.1",
   "description": "SecureBine console styling for Claude Code: labelled prompt boxes, queued-message colors, quiet tool rows, colored command output and a science-fiction spinner",
   "author": { "name": "Scott Crosby" },
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "reelApes": {
+      "type": "boolean",
+      "title": "Reel: Together strong",
+      "description": "From Planet of the Apes. In auto it plays for subagents and anything else.",
+      "required": false,
+      "default": true
+    },
+    "reelBreach": {
+      "type": "boolean",
+      "title": "Reel: Breach Protocol",
+      "description": "From Cyberpunk 2077. In auto it plays for shell commands, thinking and anything else.",
+      "required": false,
+      "default": true
+    },
+    "reelDigitalrain": {
+      "type": "boolean",
+      "title": "Reel: Digital rain",
+      "description": "From The Matrix. In auto it plays for shell commands and anything else.",
+      "required": false,
+      "default": true
+    },
+    "reelDontpanic": {
+      "type": "boolean",
+      "title": "Reel: Don't panic",
+      "description": "From Hitchhiker's Guide. In auto it plays for thinking and anything else.",
+      "required": false,
+      "default": true
+    },
+    "reelGhost": {
+      "type": "boolean",
+      "title": "Reel: Ghost line",
+      "description": "From Ghost in the Shell. In auto it plays for file edits, web fetches and anything else.",
+      "required": false,
+      "default": true
+    },
+    "reelHokuto": {
+      "type": "boolean",
+      "title": "Reel: Hokuto Shinken",
+      "description": "From Fist of the North Star. In auto it plays for thinking, requests and anything else.",
+      "required": false,
+      "default": true
+    },
+    "reelJupiter2": {
+      "type": "boolean",
+      "title": "Reel: Jupiter 2",
+      "description": "From Lost in Space. In auto it plays for web fetches and anything else.",
+      "required": false,
+      "default": true
+    },
+    "reelKodama": {
+      "type": "boolean",
+      "title": "Reel: Forest spirit",
+      "description": "From Princess Mononoke. In auto it plays on long waits only.",
+      "required": false,
+      "default": true
+    },
+    "reelLightcycles": {
+      "type": "boolean",
+      "title": "Reel: Light cycles",
+      "description": "From Tron. In auto it plays for shell commands, file edits and anything else.",
+      "required": false,
+      "default": true
+    },
+    "reelSandevistan": {
+      "type": "boolean",
+      "title": "Reel: Sandevistan",
+      "description": "From Cyberpunk: Edgerunners. In auto it plays for subagents, requests and anything else.",
+      "required": false,
+      "default": true
+    },
+    "reelSauron": {
+      "type": "boolean",
+      "title": "Reel: Eye of Sauron",
+      "description": "From The Lord of the Rings. In auto it plays as the rare reel, about 1 turn in 50.",
+      "required": false,
+      "default": true
+    },
+    "reelVortex": {
+      "type": "boolean",
+      "title": "Reel: Vortex",
+      "description": "From Doctor Who. In auto it plays on long waits and anything else.",
+      "required": false,
+      "default": true
+    }
+  }
 }

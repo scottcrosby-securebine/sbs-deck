@@ -4,7 +4,7 @@ import type { Engine, TestBody } from 'claude-code/testing'
 import type { ToolCallArgs } from 'claude-code'
 
 import { colorLine } from './color'
-import { NEW_REELS, reelNamed } from './library'
+import { NEW_REELS, reelField, reelNamed } from './library'
 import { contextOf, holdEnd, poolOf } from './picker'
 import type { Context, Entry } from './picker'
 import { HALF_RATE } from './reels/legacy'
@@ -2771,4 +2771,105 @@ test('a typed prompt\'s working line starts fresh while its submit hooks run and
   expect(seen.map(frame => frame.readout)).toEqual(['-- · -- tokens', '0s · 0 tokens'])
   expect(seen[0]!.reel).toBeDefined()
   expect(seen[1]!.reel).toBe(seen[0]!.reel)
+})
+
+// The per-reel switches in /config, set as settings.json would hold them.
+const nameOf = (key: string | undefined) => (key ?? '').split(':')[1] ?? ''
+const ALL_OFF = Object.fromEntries(NEW_REELS.map(r => [reelField(r.name), false]))
+
+test('every launch reel has its /config field, so session start toasts no plugin.json line', async ($, on) => {
+  mock.store(on)
+  mock.clock(on)
+  const toasts: string[] = []
+  on('fs.list', () => ({ value: [] }))
+  on('ui.toast', ($, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+
+  await startSession($, on)
+  expect(toasts.join('\n')).not.toContain('plugin.json')
+  expect(JSON.stringify(await sbsCommand($, 'anim list'))).not.toContain('plugin.json')
+})
+
+test('auto never draws a reel switched off, and an all-off pool draws from other without them', {
+  options: { reelBreach: false, reelDontpanic: false, reelHokuto: false },
+  timeoutMs: 30_000,
+}, async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  const off = ['breach', 'dontpanic', 'hokuto']
+  const other = poolOf('other', NEW_REELS.filter(r => !off.includes(r.name))).map(entry => entry.reel).sort()
+  const drawn: string[] = []
+
+  // Every reel in thinking's pool is off.
+  for (let k = 0; k < other.length; k += 1) drawn.push(nameOf(await firstKey($, 'thinking')))
+  expect(drawn.sort()).toEqual(other)
+
+  // Requesting keeps Sandevistan once Hokuto is off.
+  for (let k = 0; k < 4; k += 1) expect(nameOf(await firstKey($, 'requesting')), `draw ${k}`).toBe('sandevistan')
+})
+
+test('with every launch reel off, auto plays the legacy bar', { options: ALL_OFF }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+
+  for (const mode of ['thinking', 'requesting', 'tool-use'] as const) expect(await firstKey($, mode), mode).toBe('reel:bar:strip')
+
+  // Through a context change and past its loop end it stays the bar.
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  await ui.redraw({ word: 'Baking', message: null, suffix: '…', mode: 'requesting' })
+  await clock.advance(70 * 125)
+  expect(await reelKey(ui)).toBe('reel:bar:strip')
+  await ui.unmount()
+})
+
+test('the rare roll does nothing while sauron is off', { options: { reelSauron: false }, timeoutMs: 60_000 }, async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+
+  // At 1 in 50, 400 first picks all missing it would be under 1 in 3,000.
+  for (let turn = 0; turn < 400; turn += 1) {
+    await $.turn.start({ text: 'go', turnId: `t${turn}` })
+    expect(await firstKey($, 'thinking', 'main'), `turn ${turn}`).not.toStartWith('reel:sauron:')
+  }
+})
+
+test('/sbs anim next steps past a reel switched off, and its name still pins it', { options: { reelSandevistan: false } }, async ($, on) => {
+  const stored = fakeStore(on)
+  mock.clock(on)
+  const steps = NEW_REELS.filter(r => !r.rare).map(r => r.name)
+  const at = steps.indexOf('sandevistan')
+  const after = steps[(at + 1) % steps.length]
+
+  await sbsCommand($, `anim ${steps.at(at - 1)}`)
+  await sbsCommand($, 'anim next')
+  expect(stored.animation).toBe(after)
+
+  await sbsCommand($, 'anim sandevistan')
+  expect(stored.animation).toBe('sandevistan')
+  expect(nameOf(await firstKey($, 'thinking'))).toBe('sandevistan')
+
+  await sbsCommand($, 'anim')
+  expect(stored.animation).toBe(after)
+})
+
+test('/sbs anim list marks reels switched off, and /sbs status names them and the way back', {
+  options: { reelBreach: false, reelSauron: false },
+}, async ($, on) => {
+  mock.store(on)
+  const list = JSON.stringify(await sbsCommand($, 'anim list'))
+  expect(list).toContain('breach (off)')
+  expect(list).toContain('sauron (rare, off)')
+  expect(list).not.toContain('ghost (off)')
+  const status = JSON.stringify(await sbsCommand($, 'status'))
+  expect(status).toContain('Reels off: breach, sauron.')
+  expect(status).toContain('/config')
+})
+
+test('/sbs status names no reel off while every one is on', async ($, on) => {
+  mock.store(on)
+  expect(JSON.stringify(await sbsCommand($, 'status'))).not.toContain('Reels off')
 })
