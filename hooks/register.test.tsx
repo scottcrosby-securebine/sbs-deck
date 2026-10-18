@@ -2153,6 +2153,10 @@ test('in Night City row 1 draws from the Night City pool while Breach Protocol p
   for (const phrase of await resolvedPhrases($, on, ['theme nightcity', 'anim breach'], WIDE)) expect(NIGHT_CITY_PHRASES).toContain(phrase)
 })
 
+test('in Night City row 1 draws from the Night City pool while Sandevistan plays', { timeoutMs: 30_000 }, async ($, on) => {
+  for (const phrase of await resolvedPhrases($, on, ['theme nightcity', 'anim sandevistan'], WIDE)) expect(NIGHT_CITY_PHRASES).toContain(phrase)
+})
+
 test('in SecureBine row 1 keeps the mode pool while Breach Protocol plays', { timeoutMs: 30_000 }, async ($, on) => {
   for (const phrase of await resolvedPhrases($, on, ['anim breach'], WIDE)) expect(SPINNER_PHRASES.thinking).toContain(phrase)
 })
