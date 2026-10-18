@@ -2,6 +2,12 @@
 
 Every phrase the spinner can show, by the state it is shown in, with the work it comes from. The phrases themselves live in `hooks/spinner.ts`; this file is the reference for where each one is from.
 
+The state pools below are what the working line shows. In the Night City theme the two-row line takes its phrase from the Night City pool instead, but only while the playing reel is Breach Protocol or Sandevistan, whether the reel was picked by `auto` or pinned with `/sbs anim`. At any other time, and always in the one-row form (a narrow or short terminal, the desktop app, or `/sbs anim off`), the phrase comes from the state's own pool. In SecureBine the Night City pool never shows.
+
+## Catchphrases
+
+A reel's catchphrases are not in the pools below. Each reel file in `hooks/reels/` lists its own, as the `phrase` of each beat, and that file is the register for them. Search `hooks/reels/` for `phrase:`. They follow the same rules as every phrase here: printable ASCII, at most 28 characters, none repeated anywhere in the library, nothing that suggests Claude has failed, and nothing that warns or insults the user. The shared reel test enforces the first three. See [`reels.md`](reels.md).
+
 ## Connecting (sending the prompt)
 
 44 phrases.
@@ -334,7 +340,7 @@ Every phrase the spinner can show, by the state it is shown in, with the work it
 
 ## Night City
 
-28 phrases. Shown only in the Night City theme, while Breach Protocol or Sandevistan plays, in place of the state's own pool. Original wording in the game's idiom; no line is quoted from it.
+28 phrases, in `NIGHT_CITY_PHRASES` in `hooks/spinner.ts`. Shown only in the Night City theme, on the two-row line, while Breach Protocol or Sandevistan plays, in place of the state's own pool. Original wording in the game's idiom; no line is quoted from it.
 
 | Phrase | Source |
 |---|---|

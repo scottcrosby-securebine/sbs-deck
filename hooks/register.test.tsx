@@ -2007,7 +2007,7 @@ test('/sbs theme sets, shows and is kept by reset', async ($, on) => {
 
   const reply = await run('theme nightcity')
   expect(reply).toContain('Theme is now nightcity.')
-  expect(reply).toContain('For Claude Code\'s own colors, run install.sh --theme nightcity, or pick it with /theme once installed.')
+  expect(reply).toContain('For Claude Code\'s own colors, run install.sh --theme nightcity,\\nor pick it with /theme once installed.')
   expect(stored.theme).toBe('nightcity')
   await run('reset')
   expect(stored.theme).toBe('nightcity')

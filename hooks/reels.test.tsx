@@ -3,6 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { CONTEXTS } from './picker'
 import { checkLibrary, checkReel } from './reel-rules'
 import { ANIMATIONS } from './spinner'
+import template from './reels/_template'
 import { ALL_REELS, INDEXED_KEYS, LEGACY_REELS, NEW_REELS, unindexedLines } from './library'
 
 for (const reel of ALL_REELS) {
@@ -24,6 +25,12 @@ for (const reel of NEW_REELS) {
     expect(findings).toEqual([])
   })
 }
+
+// Not loaded by the mod: tested here so the starting point for a new reel stays working.
+test('the template reel meets the reel rules', { timeoutMs: 30_000 }, () => {
+  expect(checkReel(template).map(f => `${f.rule}: ${f.detail}`)).toEqual([])
+  expect(checkLibrary([...ALL_REELS, template]).map(f => `${f.reel}: ${f.rule}: ${f.detail}`)).toEqual([])
+})
 
 test('names and catchphrases are unique across the library', () => {
   expect(checkLibrary(ALL_REELS).map(f => `${f.reel}: ${f.rule}: ${f.detail}`)).toEqual([])
@@ -59,9 +66,12 @@ const SPEC_CONTEXTS: Record<string, string[]> = {
   vortex: ['long-wait'],
 }
 
+// Only the launch reels are pinned here, so a reel added later does not fail this test.
 test('each launch reel\'s contexts match the spec table', () => {
-  expect(Object.fromEntries(NEW_REELS.map(r => [r.name, [...r.contexts].sort()]))).toEqual(SPEC_CONTEXTS)
-  expect(NEW_REELS.filter(r => r.rare).map(r => r.name)).toEqual(['sauron'])
+  const launch = NEW_REELS.filter(r => r.name in SPEC_CONTEXTS)
+  expect(launch.map(r => r.name).sort()).toEqual(Object.keys(SPEC_CONTEXTS))
+  expect(Object.fromEntries(launch.map(r => [r.name, [...r.contexts].sort()]))).toEqual(SPEC_CONTEXTS)
+  expect(launch.filter(r => r.rare).map(r => r.name)).toEqual(['sauron'])
 })
 
 test('every context in a reel\'s contexts is a known context with a known variant, and never `other`', () => {

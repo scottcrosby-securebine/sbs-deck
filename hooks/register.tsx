@@ -579,7 +579,7 @@ export const register: Register = on => {
         text:
           `Theme is now ${theme}.` +
           (theme === 'nightcity'
-            ? '\nFor Claude Code\'s own colors, run install.sh --theme nightcity, or pick it with /theme once installed.'
+            ? '\nFor Claude Code\'s own colors, run install.sh --theme nightcity,\nor pick it with /theme once installed.'
             : ''),
       }
     }
