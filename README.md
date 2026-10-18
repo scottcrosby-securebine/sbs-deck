@@ -120,7 +120,10 @@ The last command must print nothing: no color value is written outside
 - Night City's message box cuts its corners only on terminals that have been
   checked to line them up, and the list of those is not filled in yet, so it
   draws square corners everywhere. To try them on a terminal, start Claude Code
-  with `SBS_CUT_CORNERS` set to the terminal's `TERM_PROGRAM` name.
+  with `SBS_CUT_CORNERS` set to the terminal's name: its `TERM_PROGRAM` if
+  set, else `windows-terminal`, `kitty` or `alacritty` for those terminals,
+  else its `TERM`. Several names go in a comma list with no spaces
+  (`SBS_CUT_CORNERS=kitty,WezTerm`). Corners are never cut inside tmux.
 
 - The label shows the email of the account signed in to Claude Code, read
   from `.claude.json` (the record the status line uses) each time you send a
