@@ -139,7 +139,9 @@ function thug(c: Canvas, seed: number, t: Thug) {
 // over the canvas that deepens, then fades.
 function burstBack(c: Canvas, k: number, cx: number) {
   if (k >= 1 && k < 24) {
-    const wash: Ink = k >= 2 && k <= 8 ? c.mix('hot', 'base', 0.5) : k < 16 ? c.mix('hot', 'base', 0.75) : c.mix('deep', 'base', 0.75)
+    // The last stage is the sky's own top-row ink: a darker one is near black
+    // at 256 colors, and the sky's return would flash.
+    const wash: Ink = k >= 2 && k <= 8 ? c.mix('hot', 'base', 0.5) : k < 16 ? c.mix('hot', 'base', 0.75) : c.mix('deep', 'base', 0.5)
     for (let col = 0; col < c.cols; col++) for (const row of [0, 1]) c.bg(col, row, wash)
   }
   const core = [4, 3, 3, 2, 2, 1][k]
@@ -263,7 +265,10 @@ function flurry(c: Canvas, f: number, seed: number) {
     // The swelling thug's head and shoulders throb red over a dark red torso,
     // so only the few cells holding both brighten at once.
     const body: Ink = swell > 0 && (f >> 1) & 1 ? 'hot' : 'deep', lower: Ink = 'deep'
-    thug(c, seed, { cx, swell, body, lower, lit, point: 'spark', cracks: f >= 60 ? (f - 58) / 40 : 0 })
+    // No new crack opens on frame 68, where he grows: at 256 colors his new
+    // dark red cells already brighten enough to count.
+    const cracks = f >= 60 ? (f - (f >= 68 ? 59 : 58)) / 40 : 0
+    thug(c, seed, { cx, swell, body, lower, lit, point: 'spark', cracks })
   } else {
     splash(c, seed, f - POP, cx, f >= FLURRY - WALK, col => col <= (kx + 7) >> 1)
     if (f >= FLURRY - WALK) thug(c, seed, { cx: cx + FLURRY - f, swell: 0, body: 'deep', lit: 0, point: 'spark', cracks: 0, walking: true })
@@ -276,9 +281,10 @@ function sevenStars(c: Canvas, f: number, seed: number) {
   const ox = big ? 4 : 0 // the Dipper's left dot
   const kx = 30 // Ken's left dot, on 32 columns only
 
-  // The blood red sky over the Dipper; the burst's wash covers it a while.
+  // The blood red sky over the Dipper, rising from an ember on the first
+  // frame; the burst's wash covers it a while.
   for (let col = 0; col < W; col++) {
-    c.bg(col, 0, c.mix('deep', 'base', 0.5))
+    c.bg(col, 0, f === 0 ? c.mix('hot', 'base', 0.75) : c.mix('deep', 'base', 0.5))
     if (col <= (ox >> 1) + 10) c.bg(col, 1, c.mix('deep', 'base', 0.75))
   }
   if (f >= HIDEBU) burstBack(c, f - HIDEBU, cx)

@@ -82,7 +82,12 @@ const LEAP = 38 // the letters leap off
 
 function cover(c: Canvas, f: number, seed: number) {
   const narrow = c.cols === 16
-  const cover: Ink | null = f === COVER - 1 ? null : f === 0 || f >= COVER - 3 ? c.mix('deep', 'base', 0.5) : 'deep'
+  // The cover lights over 3 frames from a red ember, every step under a flash
+  // in truecolor and at 256 colors.
+  const cover: Ink | null = f === COVER - 1 ? null
+    : f === 0 ? c.mix('hot', 'base', 0.75)
+    : f === 1 ? c.mix('deep', 'base', 0.25)
+    : f >= COVER - 3 ? c.mix('deep', 'base', 0.5) : 'deep'
   if (!cover) return
   for (let col = 0; col < c.cols; col++) { c.bg(col, 0, cover); c.bg(col, 1, cover) }
   const cool = noise(seed, 1) < 0.5
@@ -223,13 +228,13 @@ function improbability(c: Canvas, f: number, seed: number) {
   const fade = f >= FADE ? ((f - FADE) >> 1) + 1 : 0
   const dim = (ink: Ink): Ink => fade === 0 || typeof ink !== 'string' ? ink : c.mix(ink, 'base', fade === 1 ? 0.5 : 0.75)
   if (fade >= 3) {
-    if (fade === 3) for (let col = 0; col < 32; col++) c.bg(col, 1, c.mix('deep', 'base', 0.5))
+    if (fade === 3) for (let col = 0; col < 32; col++) c.bg(col, 1, c.mix('deep', 'base', 0.75))
     return
   }
 
-  // Magrathea's surface, lit over the first frame.
-  const ground: Ink = f === 0 ? c.mix('deep', 'base', 0.5) : dim('deep')
-  for (let col = 0; col < 32; col++) c.bg(col, 1, ground)
+  // Magrathea's surface lights from the left, 6 columns a frame, ahead of the
+  // ship: no frame lights enough of it at once to flash.
+  for (let col = 0; col < 32 && col < 6 * (f + 1); col++) c.bg(col, 1, dim('deep'))
 
   // The wipe: the left half both rows, then the right half's top row.
   const shift = Math.floor(noise(seed, 50) * 3)

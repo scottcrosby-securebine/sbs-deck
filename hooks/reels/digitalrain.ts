@@ -42,15 +42,18 @@ const M = (from: Slot, t: number, to: Slot = 'base'): Ink => ({ from, to, t })
 
 type Stream = { s: number; v: number }
 
-// Rain levels, dark to bright: the cell's plate and glyph ink. Each step is
-// under 0.10 in luminance in both themes, so a trail that dims a level a frame,
-// or a cell glowing back a level a frame from under the script, never counts.
+// Rain levels, dark to bright: the cell's plate and glyph ink. Up to level 5
+// each step is under 0.10 in luminance in both themes, in truecolor and at 256
+// colors, so cells glowing back a level a frame from under the script never
+// count, however many glow together. The steps into levels 6 and 7 are under
+// 0.10 in truecolor only, and few cells take them on one frame. A trail dims a
+// level a frame and never brightens by 0.10 on the way, so it counts at most once.
 const LEVELS: readonly (readonly [Ink | null, Ink])[] = [
   [null, M('cool', 0.75)],
-  [M('cool', 0.75), M('cool', 0.5)],
+  [M('cool', 0.75), M('cool', 0.75)],
   [M('cool', 0.75), M('cool', 0.25)],
-  [M('cool', 0.75), 'cool'],
-  [M('cool', 0.5), 'cool'],
+  [M('cool', 0.5), M('cool', 0.25)],
+  [M('cool', 0.25), M('cool', 0.5)],
   [M('cool', 0.25), M('cool', 0.25)],
   [M('cool', 0.25), 'cool'],
   ['cool', 'base'], // the head
@@ -214,7 +217,9 @@ function scene(f: number, seed: number): Scene {
     const depth = KNOCKS.map(k => f - k + 0.5 - Math.abs(col - 15.5)).filter(d => d >= 0).pop()
     if (depth === undefined) continue
     const bg: Ink = knock === 0 && depth === 0 ? 'spark' : depth < 2 ? 'hot' : depth < 4 ? M('hot', 0.5, 'deep') : 'deep'
-    const ink: Ink = depth === 0 && knock > 0 ? 'spark' : depth < 4 ? 'base' : 'hot'
+    // Inside the ring the code is dim red on dark red: a full red glyph would
+    // brighten the ring's cells as it passes, a flash at 256 colors.
+    const ink: Ink = depth === 0 && knock > 0 ? 'spark' : depth < 4 ? 'base' : M('hot', 0.5)
     for (const row of [0, 1]) over.set(row * W + col, { bg, ink, ch: code(col, row) })
   }
 
@@ -261,10 +266,16 @@ function draw(c: Canvas, f: number, seed: number) {
         continue
       }
       const ch = kana(seed, 8, col, row, Math.floor((tau + noise(seed, 9, col, row) * 5) / (2 + Math.floor(noise(seed, 7, col, row) * 4))))
-      // Out from under the script, the rain glows back a level a frame.
-      let free = 0
-      while (free < 7 && !veiled(f - free, cell)) free++
-      const lv = Math.min(level(list, row, tau), free)
+      // Out from under the script, the rain glows back a level a frame, each
+      // cell up to 3 frames behind its neighbors, so few cells step up together.
+      // It glows back no higher than level 5, and stays there while a head
+      // lights the cell above that, so it never takes the step into level 6,
+      // the one over 0.10 at 256 colors.
+      const lag = (col + 2 * row) % 4
+      const freeAt = (g: number) => { let n = 0; while (n < 7 + lag && !veiled(g - n, cell)) n++; return n - lag }
+      const free = freeAt(f)
+      let lv = Math.min(level(list, row, tau), Math.max(0, free))
+      for (let g = f; lv >= 6 && g > f - 12 && level(list, row, clock(g)) >= 6; g--) if (freeAt(g) < 7) lv = 5
       // A glitch blinks only in a dim cell that stays dim and clear of the
       // script around it; its 0.099 luminance never counts as a flash.
       const slot = f + ((col * 7 + row * 8) & 15)

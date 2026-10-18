@@ -131,16 +131,21 @@ function draw(c: Canvas, f: number, seed: number) {
   const seamAt = (s: number) => ((s + cam(f, p.lurch)) % p.gap + p.gap) % p.gap === 0
   const down = (s: number) => f - DOWN - (s >> 1) // the power-down front reaches column s at 0
 
-  // The arena: tiles and black seams with a dotted line, streaming with the camera.
+  // The arena: tiles and black seams with a dotted line, streaming with the
+  // camera. The boot's front glows a dim red for a frame ahead of the tiles,
+  // so no cell lights in one step bright enough to flash at 256 colors.
   for (let s = 0; s < 32; s++) {
-    if (f < RACE && Math.floor(Math.abs(s - 15.5)) >= 2 * (f + 1)) continue
+    const reach = Math.floor(Math.abs(s - 15.5))
+    if (f < RACE && reach >= 2 * (f + 1)) continue
+    const front = f < RACE && reach >= 2 * f
     const k = down(s)
     if (k === 0) { setBg(s, 0, c.mix('spark', 'base', 0.5)); setBg(s, 1, c.mix('spark', 'base', 0.5)); lit.add(s).add(s + 32); continue }
     if (k > 0) continue
     if (seamAt(s)) {
-      for (let dy = 0; dy < 8; dy++) dots.push([2 * s, dy, seam])
+      for (let dy = 0; dy < 8; dy++) dots.push([2 * s, dy, front ? c.mix('cool', 'base', 0.5) : seam])
     } else {
-      setBg(s, 0, tile); setBg(s, 1, tile)
+      const ink = front ? c.mix('hot', 'base', 0.75) : tile
+      setBg(s, 0, ink); setBg(s, 1, ink)
     }
   }
 
@@ -165,7 +170,7 @@ function draw(c: Canvas, f: number, seed: number) {
       if (k >= 0) { ink = k > 1 ? null : isRed ? 'deep' : c.mix('cool', 'base', 0.75); glow = false }
       if (!ink) return
       setPx(s, px.y, ink)
-      if (glow && f >= 6 && !seamAt(s)) setBg(s, px.y >> 1, isRed ? 'deep' : c.mix('cool', 'base', 0.75))
+      if (glow && f >= 6 && !seamAt(s)) setBg(s, px.y >> 1, isRed ? c.mix('deep', 'base', 0.25) : c.mix('cool', 'base', 0.75))
     })
   }
 

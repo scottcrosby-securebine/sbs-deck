@@ -83,19 +83,24 @@ function camo(c: Canvas, f: number, seed: number) {
     const n = noise(seed, 8, col, y)
     return n < 0.3 ? 'spark' : n < 0.55 ? 'cool' : 'hot'
   }
-  // A world pixel's ink: facade, roof rim (dim), window, or sky.
+  // A world pixel's ink: facade, roof rim (dim), window, or sky. While the
+  // city streams past, the facades dim a step and the rims with them, so the
+  // roofs scrolling through the cells never brighten many at once at 256 colors.
+  const falling = s > 0 && !dark
   const world = (col: number, y: number): Ink | null => {
     const t = tower(col)
     if (!t || y < t.roof) return null
-    if (dark || y === t.roof) return dim('deep')
-    return windowAt(col, y, t.roof) ?? 'deep'
+    if (dark) return dim('deep')
+    if (y === t.roof) return falling ? c.mix('deep', 'base', 0.5) : dim('deep')
+    return windowAt(col, y, t.roof) ?? (falling ? dim('deep') : 'deep')
   }
 
   for (let col = 0; col < 32; col++) {
     if (inZone(col) && s > 0) {
-      // The drop: she falls down her tower's dark face, faded in over two frames,
-      // while the lit facades stream past on both sides.
-      for (let r = 0; r < 2; r++) c.bg(col, r, c.mix('deep', 'base', f === FALL ? 0.75 : 0.5))
+      // The drop: she falls down her tower's dark face, faded in over two frames
+      // from an ember (a quarter of deep is near black at 256 colors, and the
+      // second step would flash), while the lit facades stream past on both sides.
+      for (let r = 0; r < 2; r++) c.bg(col, r, f === FALL ? c.mix('hot', 'base', 0.75) : c.mix('deep', 'base', 0.5))
     } else if (inZone(col)) {
       // Plates, so her dots can sit over the city: a cell takes its brighter pixel.
       for (let r = 0; r < 2; r++) {

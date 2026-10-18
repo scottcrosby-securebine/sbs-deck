@@ -69,9 +69,9 @@ function draw(c: Canvas, f: number, seed: number) {
   const yel = (big ? 3 : 2.5) + (wide ? 2 : 0)
   const red = (big ? 6.5 : 4) + (wide ? 2.5 : 0)
   const p = Math.floor(cx)
-  const half = (x: number) => {
+  const half = (x: number, o = open) => {
     const u = (x - dotMid) / R
-    return Math.abs(u) >= 1 ? -1 : 3.6 * open * Math.sqrt(1 - u * u)
+    return Math.abs(u) >= 1 ? -1 : 3.6 * o * Math.sqrt(1 - u * u)
   }
 
   // The night sky: dim aqua stars either side of the eye, twinkling slowly.
@@ -81,16 +81,22 @@ function draw(c: Canvas, f: number, seed: number) {
     if (noise(seed, 12, i, (f + i * 3) >> 3) < 0.7) c.put(col * 2 + (i & 1), Math.floor(noise(seed, 13, i) * 8), c.mix('cool', 'base', 0.5), 1)
   }
 
-  // The eye: a black slit, a yellow iris, a red ring, a dark red rim.
+  // The eye: a black slit, a yellow iris, a red ring, a dark red rim. While it
+  // opens, a cell new to the slit kindles a darker red for a frame and the
+  // ring burns a darker red, so no frame lights many cells at once at 256
+  // colors. (A cell new to the slit is never in the bands yet.)
+  const opening = f < TURN
+  const ring: Ink = opening ? c.mix('hot', 'deep', 0.5) : 'hot'
   for (let col = 0; col < W; col++) {
     const h = half(col * 2 + 1)
     if (h < 0) continue
     const pupil = wide ? Math.abs(col - p) <= 1 : col === p
     if (pupil && h > 0.5) continue
     const d = Math.abs(col + 0.5 - cx) - (wide ? 1 : 0)
+    const fresh = opening && half(col * 2 + 1, f / TURN) <= 0.5
     const ink: Ink | null = h > 1.2
-      ? d < yel ? 'spark' : d < red ? 'hot' : d < red + 2 ? c.mix('hot', 'deep', 0.5) : 'deep'
-      : h > 0.5 ? 'deep' : null
+      ? d < yel ? 'spark' : d < red ? ring : d < red + 2 ? c.mix('hot', 'deep', 0.5) : 'deep'
+      : h > 0.5 ? (fresh ? c.mix('deep', 'base', 0.25) : 'deep') : null
     if (ink) { c.bg(col, 0, ink); c.bg(col, 1, ink) }
   }
 
@@ -106,10 +112,15 @@ function draw(c: Canvas, f: number, seed: number) {
   // Flames: licks above and below the body, and tongues streaming off both
   // corners, longer and hotter as the eye widens.
   const heat = Math.min(1, open) * (wide ? 1.5 : 1)
-  const flick = f >> 2
+  // The flames flicker every 4 frames, never on a snap or a beat, where many
+  // cells already light, and not on the last frame, just before the loop wraps.
+  const flick = (Math.min(f, LOOP - 2) + 1) >> 2
   for (let i = 0; i < 10; i++) {
     const x = dotMid - R + noise(seed, flick, i) * 2 * R, h = half(x)
-    if (h > 0) c.put(x, noise(seed, flick, i, 1) < 0.5 ? 3.5 - h - 1 : 3.5 + h + 1, noise(seed, flick, i, 2) < 0.4 ? 'spark' : 'hot', 3)
+    // While it opens the flames move with the rim every frame: red only, so
+    // they never add to the yellow iris lighting.
+    const yellow = !opening && noise(seed, flick, i, 2) < 0.4
+    if (h > 0) c.put(x, noise(seed, flick, i, 1) < 0.5 ? 3.5 - h - 1 : 3.5 + h + 1, yellow ? 'spark' : 'hot', 3)
   }
   const reach = (big ? 6 : 3) * heat
   for (const s of [-1, 1]) {
@@ -120,7 +131,7 @@ function draw(c: Canvas, f: number, seed: number) {
       for (let k = 0; k < len; k++) {
         // Tongues stop short of the star's column, so they never smear the star.
         if (s === side && Math.round(tip + s * (k + 1)) >> 1 === edge(side)) break
-        const ink: Ink = k * 3 < len ? 'spark' : k * 3 < len * 2 ? 'hot' : c.mix('hot', 'deep', 0.5)
+        const ink: Ink = k * 3 < len && !opening ? 'spark' : k * 3 < len * 2 ? 'hot' : c.mix('hot', 'deep', 0.5)
         c.put(tip + s * (k + 1), y0 - (k >> 1), ink, k * 3 < len ? 3 : 2)
       }
     }

@@ -212,11 +212,14 @@ function bundle(c: Canvas, f: number, seed: number) {
   const glint = f >= HOLD + 3 ? 9 + (f - HOLD - 3) * 2 : -9
   for (let col = 9; col <= 22; col++) {
     if (Math.abs(col - 15.5) > reach) continue
+    const shine = col === glint || col === glint + 1
+    const ink = (k: number): Ink => tied(col) || shine ? 'hot' : col === bark[k] ? 'deep' : sticks[k]!
+    // Bowed, the bottom stick stretches to fill the bottom pixel, so a bow
+    // brightens one cell row at most, also at 256 colors.
+    if (bowed(col)) c.pix(col, 3, ink(0))
     for (let k = 0; k < 4; k++) {
       const y = 3 - k - (bowed(col) ? 1 : 0)
-      if (y < 0) continue
-      const shine = col === glint || col === glint + 1
-      c.pix(col, y, tied(col) || shine ? 'hot' : col === bark[k] ? 'deep' : sticks[k]!)
+      if (y >= 0) c.pix(col, y, ink(k))
     }
   }
 }

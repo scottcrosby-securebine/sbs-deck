@@ -95,7 +95,7 @@ function draw(c: Canvas, t: number, seed: number) {
     // rim: a red glow while it brakes in, then the plume.
     const ahead = 24 - 8 * t
     for (let k = 1; k <= ahead; k++) {
-      sky(X + d * (7 + k), 2, c.mix('cool', 'base', k <= (3 * ahead) / 4 ? 0.5 : 0.75))
+      sky(X + d * (7 + k), 2, c.mix('cool', 'base', k <= ahead / 4 ? 0.5 : 0.75))
     }
     if (flaring) {
       // It dims away from the rim in both rows, so no cell brightens as it
@@ -140,7 +140,9 @@ function draw(c: Canvas, t: number, seed: number) {
     const inner = col >= 14 && col <= 17
     if (inner) px(col, 0, col === 14 || col === 17 ? c.mix('cool', 'base', 0.5) : (col - 15 === brain ? 'spark' : 'hot'))
     px(col, 1, 'cool')
-    if (inner) px(col, 2, chest[(col + ((t + 2) >> 2)) % 3]!)
+    // The chest lights start chasing once his arms have unfolded, so no light
+    // changes beside a cell that has just appeared or an arm that is unfolding.
+    if (inner) px(col, 2, chest[(col + (Math.max(t, ARMS + 5) >> 2)) % 3]!)
     px(col, 3, 'cool')
   }
 

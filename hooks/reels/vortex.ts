@@ -51,8 +51,9 @@ const IRIS = [...Array(64).keys()]
   .sort((a, b) => a.d - b.d || a.col - b.col || a.row - b.row)
 const RANK = new Map(IRIS.map(({ col, row }, k) => [col * 2 + row, k]))
 
-// The road: dim enough that no cell rises 0.10 as a scene cuts in from black.
-const road = (c: Canvas) => c.mix('deep', 'base', 0.5)
+// The road: dim enough that no cell rises 0.10 as a scene cuts in from black,
+// also at 256 colors, where half of dark red rounds brighter than a quarter.
+const road = (c: Canvas) => c.mix('deep', 'base', 0.75)
 
 function vortex(c: Canvas, f: number, seed: number) {
   const dir = noise(seed, 1) < 0.5 ? 1 : -1
@@ -116,10 +117,11 @@ function tardis(c: Canvas, x: number, levels: readonly [number, number], lit: bo
 
 // A night street: a dark red sky over black rooftops whose windows light one
 // by one, all within 12 frames, so none lights near the loop's end; a dark
-// road. The sky brightens over 3 frames as the scene cuts in.
+// road. The sky brightens over 3 frames from a red ember as the scene cuts in,
+// each step under 0.10 in truecolor and at 256 colors.
 function street(c: Canvas, f: number, seed: number) {
   const s = f - (f < DEMAT ? VWORP : DEMAT)
-  const glow: Ink = s < 2 ? c.mix('deep', 'base', s ? 0.25 : 0.5) : 'deep'
+  const glow: Ink = s === 0 ? c.mix('hot', 'base', 0.75) : s === 1 ? c.mix('deep', 'base', 0.25) : 'deep'
   for (let col = 0; col < 32; col++) { c.bg(col, 0, glow); c.bg(col, 1, road(c)) }
   const x = 12 + Math.floor(noise(seed, 6) * 5)
   const windows: Ink[] = ['spark', 'cool', 'hot']
