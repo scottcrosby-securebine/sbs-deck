@@ -5,28 +5,29 @@ import { noise } from '../canvas'
 // fire kindles from a slit under dim aqua stars and turns, searching. An
 // ember glints at one edge and the eye snaps to it, finds nothing and turns
 // away. Behind it, a star brightens at that edge; the eye snaps all the way
-// back across onto it and holds it in its pupil, gazing as into the palantir. The eye widens: the pupil opens,
-// the iris and rim blaze and the flames roar. The star gutters out, the eye
-// narrows and drifts back to its search, and sinks to a slit for the next
-// loop. The seed picks the star's side and height, the ember's height, the
-// sweep's direction, the sky and the flames.
+// back across onto it and holds it in its pupil, gazing as into the
+// palantir. The eye widens: the pupil opens, the gold iris and red ring
+// spread from its edge, the rim flares and the flames roar. The star gutters
+// out, the eye narrows and glides back to its search, and sinks to a slit
+// for the next loop. The seed picks the star's side and height, the ember's
+// height, the sweep's direction, the sky and the flames.
 //
 // It draws on the canvas it gets (compact): on 32 columns the eye spans
 // columns 6 to 25 and the star at column 1 or 30; on 16, columns 2 to 13
 // and the star at column 0 or 15, past the flame tongues at the eye's corners.
 
-const LOOP = 120
+const LOOP = 108
 const TURN = 8 // fully open; the search begins
 const LEAD = 28 // the eye snaps to the ember (glints 2 frames ahead)
 const BACK = 38 // nothing there: the eye glides back and sways away
 const GLINT = 46 // the star brightens
 const SNAP = 49 // the eye snaps to the star
 const LOCK = 52 // locked on: the star in the pupil
-const RING = 76 // the eye widens and blazes
-const FLARE = 82 // the rim's flare ends
-const FADE = 96 // the star gutters out and the eye narrows
-const DRIFT = 100 // the eye glides back to its search
-const CLOSE = 112 // the eye sinks to a slit
+const RING = 64 // the eye widens and blazes
+const FLARE = 70 // the rim's flare ends
+const FADE = 84 // the star gutters out and the eye narrows
+const DRIFT = 88 // the eye glides back to its search
+const CLOSE = 100 // the eye sinks to a slit
 
 function draw(c: Canvas, f: number, seed: number) {
   const W = c.cols, big = W === 32
@@ -63,8 +64,10 @@ function draw(c: Canvas, f: number, seed: number) {
 
   const open = f < TURN ? (f + 1) / TURN : f >= CLOSE ? (LOOP - f) / 8 : 1
   const wide = f >= RING && f < FADE
-  const yel = (big ? 3 : 2.5) + (wide ? 1 : 0)
-  const red = (big ? 6.5 : 4) + (wide ? 1.5 : 0)
+  // While wide the bands are measured from the pupil's edge and the iris
+  // grows, so the gold spreads past the opened pupil instead of shrinking.
+  const yel = (big ? 3 : 2.5) + (wide ? 2 : 0)
+  const red = (big ? 6.5 : 4) + (wide ? 2.5 : 0)
   const p = Math.floor(cx)
   const half = (x: number) => {
     const u = (x - dotMid) / R
@@ -84,7 +87,7 @@ function draw(c: Canvas, f: number, seed: number) {
     if (h < 0) continue
     const pupil = wide ? Math.abs(col - p) <= 1 : col === p
     if (pupil && h > 0.5) continue
-    const d = Math.abs(col + 0.5 - cx)
+    const d = Math.abs(col + 0.5 - cx) - (wide ? 1 : 0)
     const ink: Ink | null = h > 1.2
       ? d < yel ? 'spark' : d < red ? 'hot' : d < red + 2 ? c.mix('hot', 'deep', 0.5) : 'deep'
       : h > 0.5 ? 'deep' : null
@@ -115,6 +118,8 @@ function draw(c: Canvas, f: number, seed: number) {
       const len = Math.floor(noise(seed, 20, flick, s, i) * (reach + 1))
       const y0 = 2 + Math.floor(noise(seed, 21, flick, s, i) * 4)
       for (let k = 0; k < len; k++) {
+        // Tongues stop short of the star's column, so they never smear the star.
+        if (s === side && Math.round(tip + s * (k + 1)) >> 1 === edge(side)) break
         const ink: Ink = k * 3 < len ? 'spark' : k * 3 < len * 2 ? 'hot' : c.mix('hot', 'deep', 0.5)
         c.put(tip + s * (k + 1), y0 - (k >> 1), ink, k * 3 < len ? 3 : 2)
       }
