@@ -1,11 +1,19 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
+import { artRuns, drawFrame } from './canvas'
+import type { Run } from './canvas'
 import { cleanLine, colorLine } from './color'
+import { LEGACY_REELS, reelNamed } from './library'
+import { nextVariant } from './picker'
+import type { Context } from './picker'
+import { endStep, newTurn, readoutText, withEffort } from './readout'
+import type { TurnStats } from './readout'
 import { ANIMATIONS, AUTO, animationFor, decrypt, phraseFor } from './spinner'
 import type { SpinnerMode } from './spinner'
 import { ROLES } from './theme'
 import type { Role, ThemeName } from './theme'
+import { layoutLine, rowOneText, tierFor } from './workline'
 
 // Nerd Font icons, written as escapes so no editor or pipe can drop them: a
 // shield for the operator and a robot for the assistant.
@@ -15,7 +23,10 @@ const ASSISTANT_ICON = '\u{F06A9}'
 // The spinner's animation clock: a timer advances it while a turn runs, and
 // the Spinner hook reads it, so each tick redraws that one line alone.
 const spinnerTick = atom({ plugin: 'sbs-deck', key: 'spinnerTick' } as const, 0)
-const TICK_MS = 150
+// Each loop's turn data for the readout, keyed 'main' or the agent id. An atom,
+// so a reload of the mod keeps counting.
+const turnStats = atom({ plugin: 'sbs-deck', key: 'turnStats' } as const, {} as Record<string, TurnStats>)
+const TICK_MS = 125
 // How many turn-opening reply ids are kept between loads.
 const MAX_SAVED_OPENERS = 400
 // How many drawn reply ids are remembered within a session.
@@ -23,7 +34,13 @@ const MAX_TRACKED_REPLIES = 4000
 // A ticker nobody has drawn from for this many ticks stops itself. That is how
 // it stops at all: a background agent's spinner can outlive the turn that
 // started it, so the end of a turn does not stop the ticker.
-const IDLE_TICKS = 40
+const IDLE_TICKS = 48
+// How many agents' turn data is kept, the oldest dropped first.
+const MAX_AGENTS = 50
+// A spinner instance not drawn for this long is dropped at the next main turn.
+const INSTANCE_TTL_MS = 10 * 60_000
+// How many frames a beat's catchphrase stands on row 1.
+const BEAT_FRAMES = 12
 
 // How many lines of a result are drawn colored before the rest is counted.
 const MAX_RESULT_LINES = 20
@@ -204,6 +221,20 @@ async function signedInAccount($: EngineInterface): Promise<string | undefined> 
   }
 }
 
+// The turn data with `key`'s turn replaced and moved last, keeping the
+// newest MAX_AGENTS agents beside the main loop.
+function withTurn(all: Record<string, TurnStats>, key: string, turn: TurnStats): Record<string, TurnStats> {
+  const { [key]: _old, ...rest } = all
+  const kept: Record<string, TurnStats> = { ...rest, [key]: turn }
+  const agents = Object.keys(kept).filter(name => name !== 'main')
+
+  for (const name of agents.slice(0, Math.max(0, agents.length - MAX_AGENTS))) {
+    delete kept[name]
+  }
+
+  return kept
+}
+
 const SBS_USAGE = [
   '/sbs on | off          all the styling',
   '/sbs normal            stock Claude Code (the same as off)',
@@ -313,6 +344,46 @@ export const register: Register = on => {
   // instance: a session can draw several spinners at once (the terminal and the
   // desktop, or one per agent), and each keeps its own phrase.
   const phrasesShown = new Map<string, { mode: SpinnerMode; pick: number; since: number }>()
+  // The turn tracker: the main loop's running tools in start order, the tool
+  // whose input the model is streaming, the agents seen on turn and tool
+  // events, and the characters streamed in each loop's current step.
+  const runningTools: { id: string; name: string }[] = []
+  let inputTool: string | undefined
+  const knownAgents = new Set<string>()
+  const streaming = new Map<string, number>()
+  const currentTool = (): string | undefined => runningTools.at(-1)?.name ?? inputTool
+  const rememberAgent = (id: string) => {
+    knownAgents.delete(id)
+    knownAgents.add(id)
+
+    for (const oldest of knownAgents) {
+      if (knownAgents.size <= MAX_AGENTS) {
+        break
+      }
+
+      knownAgents.delete(oldest)
+    }
+  }
+  // Whose turn a spinner reads: an agent's when its id is one, else the main
+  // loop's. The turn data survives a reload, so it names the agents too.
+  const loopKeyOf = (requestId: string, stats: Record<string, TurnStats>): string =>
+    knownAgents.has(requestId) || Object.hasOwn(stats, requestId) ? requestId : 'main'
+  // Each spinner instance's reel, when it was last drawn and its long-wait
+  // clock, keyed as its phrase is. Which variant each reel plays next is kept
+  // for the session, so rotation survives new plays and new turns.
+  type Play = {
+    reel: string
+    variant: string
+    seed: number
+    startedAt: number
+    context: Context
+    holdUntil: number | undefined
+    isRare: boolean
+  }
+  const plays = new Map<string, Play>()
+  const lastDrawn = new Map<string, number>()
+  const steady = new Map<string, { key: string; since: number }>()
+  const variantTurns = new Map<string, number>()
   // Who is shown beside OPERATOR: the account signed in to Claude Code, by its
   // email, read again at every turn so a new sign-in shows at once. The
   // machine's login name stands in where no account can be read.
@@ -353,6 +424,9 @@ export const register: Register = on => {
     if (typeof savedAnimation === 'string' && (savedAnimation === AUTO || Object.hasOwn(ANIMATIONS, savedAnimation))) {
       animation = savedAnimation
     }
+
+    // A change of animation starts every spinner afresh.
+    plays.clear()
 
     const savedOpeners = await $.store.get('turnOpeners')
 
@@ -412,6 +486,7 @@ export const register: Register = on => {
       // steps through them all.
       if (how === '' || how === 'next') {
         animation = all[(all.indexOf(animation) + 1) % all.length] ?? AUTO
+        plays.clear()
         await $.store.set('animation', animation)
 
         return {
@@ -428,6 +503,7 @@ export const register: Register = on => {
       }
 
       animation = how
+      plays.clear()
       await $.store.set('animation', animation)
 
       return { text: `Spinner animation is ${animation}.` }
@@ -502,10 +578,36 @@ export const register: Register = on => {
 
   // Each turn, however it began, gets one reply header and a running ticker.
   // A subagent's run starts as a turn of its own inside the main turn: it is
-  // the main turn's header, phrase and ticker that stand.
-  on('turn.start', ($, e, next) => {
+  // the main turn's header, phrase and ticker that stand. Every turn, the
+  // subagent's too, starts its own turn data for the readout.
+  on('turn.start', async ($, e, next) => {
+    const now = await $.clock.now()
+
+    if (e.agentId !== undefined) {
+      rememberAgent(e.agentId)
+    }
+
+    const stats = await update($, turnStats, all => withTurn(all, e.agentId ?? 'main', newTurn(now)))
+
     if (e.agentId !== undefined) {
       return next(e)
+    }
+
+    // The main spinner picks afresh; a subagent's keeps its own. Any instance
+    // not drawn for a while is dropped.
+    runningTools.length = 0
+    inputTool = undefined
+    streaming.delete('main')
+
+    for (const instance of new Set([...plays.keys(), ...lastDrawn.keys(), ...steady.keys(), ...phrasesShown.keys()])) {
+      const requestId = instance.slice(instance.indexOf(':') + 1)
+
+      if (loopKeyOf(requestId, stats) === 'main' || now - (lastDrawn.get(instance) ?? now) >= INSTANCE_TTL_MS) {
+        plays.delete(instance)
+        lastDrawn.delete(instance)
+        steady.delete(instance)
+        phrasesShown.delete(instance)
+      }
     }
 
     for (const prompt of deliveredAmong(waitingPrompts, e.text)) {
@@ -540,6 +642,92 @@ export const register: Register = on => {
     })
 
     return next(e)
+  })
+
+  // The readout's step data: the effort as the step starts, the characters
+  // streamed while it runs, its output tokens once it ends. Chunks, the result
+  // and errors pass through unchanged; the bookkeeping never throws into them.
+  // A step that closes early or rejects counts as one without usage.
+  on('turn.step', async function* ($, e, next) {
+    const loop = e.agentId ?? 'main'
+    let chars = 0
+    let ended: { tokens: number | undefined } | undefined
+
+    try {
+      await update($, turnStats, all => {
+        const stats = all[loop]
+
+        return stats === undefined ? all : { ...all, [loop]: withEffort(stats, e.effort) }
+      })
+    } catch {
+      // The readout misses this step's effort; the step goes on.
+    }
+
+    const stream = next(e)
+
+    try {
+      for await (const chunk of stream) {
+        try {
+          if (chunk.kind === 'text' || chunk.kind === 'thinking') {
+            chars += chunk.text.length
+          } else if (chunk.kind === 'input') {
+            chars += chunk.json.length
+          } else if (chunk.kind === 'tool' && loop === 'main') {
+            inputTool = chunk.name
+          }
+
+          streaming.set(loop, chars)
+        } catch {
+          // A chunk the count cannot read is passed on uncounted.
+        }
+
+        yield chunk
+      }
+
+      const result = await stream.result
+      ended = { tokens: result.usage?.output_tokens }
+
+      return result
+    } finally {
+      streaming.delete(loop)
+
+      if (loop === 'main') {
+        inputTool = undefined
+      }
+
+      try {
+        await update($, turnStats, all => {
+          const stats = all[loop]
+
+          return stats === undefined ? all : { ...all, [loop]: endStep(stats, ended?.tokens, chars) }
+        })
+      } catch {
+        // The readout misses this step's tokens.
+      }
+    }
+  })
+
+  // The running tool on the main loop, from its start to its end, however it
+  // ends; a subagent's call names its agent.
+  on('tool.call', async ($, e, next) => {
+    if (e.agentId !== undefined) {
+      rememberAgent(e.agentId)
+
+      return next(e)
+    }
+
+    const running = { id: e.tool_use_id ?? '', name: e.tool }
+    runningTools.push(running)
+
+    try {
+      return await next(e)
+    } finally {
+      const at = runningTools.indexOf(running)
+
+      if (at !== -1) {
+        runningTools.splice(at, 1)
+      }
+    }
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -710,6 +898,8 @@ export const register: Register = on => {
     )
   })
 
+  // The working line, drawn by the mod: two rows of reel art beside the
+  // phrase and the readout, or one row where there is no room for art.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     if (!isEnabled) {
       return next(e)
@@ -718,6 +908,10 @@ export const register: Register = on => {
     // Reading the tick subscribes this line to it; the animation itself runs
     // off the clock, so it stays right however rarely the line is redrawn.
     await read($, spinnerTick)
+    const stats = await read($, turnStats)
+    const now = await $.clock.now()
+    const instance = `${e.surface}:${e.requestId}`
+    lastDrawn.set(instance, now)
     drawnAt = ticks
 
     // The ticker stops itself when the spinner has been away (a dialog, a long
@@ -737,10 +931,7 @@ export const register: Register = on => {
       })
     }
 
-    const now = await $.clock.now()
-    const frame = Math.floor(now / TICK_MS)
-
-    const instance = `${e.surface}:${e.requestId}`
+    const tier = tierFor(e.surface, e.viewport, false)
     let shown = phrasesShown.get(instance)
 
     if (shown?.mode !== e.props.mode) {
@@ -751,12 +942,89 @@ export const register: Register = on => {
 
     const age = Math.floor((now - shown.since) / TICK_MS)
     const phrase = phraseFor(e.props.mode, shown.pick)
-    const draw = ANIMATIONS[animationFor(animation, phrase)] ?? ANIMATIONS.bar
 
-    return next({
-      ...e,
-      props: { ...e.props, word: decrypt(phrase, age, frame), suffix: ` ${draw?.(frame) ?? ''}` },
+    // The reel plays from this spinner's own frame 0; a loop's end starts the
+    // next loop afresh, however many loops passed while it was hidden.
+    let play: Play | undefined
+    let art: Run[][] | undefined
+    let catchphrase: string | undefined
+
+    if (tier !== 'one-row') {
+      const reel = reelNamed(animationFor(animation, phrase)) ?? LEGACY_REELS[0]!
+      play = plays.get(instance)
+
+      if (play?.reel !== reel.name) {
+        play = {
+          reel: reel.name,
+          variant: nextVariant(reel, variantTurns),
+          seed: Math.floor(Math.random() * 2 ** 31),
+          startedAt: now,
+          context: 'other',
+          holdUntil: undefined,
+          isRare: false,
+        }
+        plays.set(instance, play)
+      }
+
+      let frame = Math.floor((now - play.startedAt) / TICK_MS)
+
+      if (frame >= (reel.variants[play.variant]?.loop ?? Infinity)) {
+        play.startedAt = now
+        frame = 0
+        play.seed = Math.floor(Math.random() * 2 ** 31)
+        play.variant = nextVariant(reel, variantTurns)
+      }
+
+      catchphrase = reel.variants[play.variant]?.beats.find(beat => frame >= beat.at && frame < beat.at + BEAT_FRAMES)?.phrase
+      art = artRuns(drawFrame(reel, play.variant, frame, play.seed, tier === 'full' ? 32 : 16), theme)
+    }
+
+    const rowOne = rowOneText({
+      message: e.props.message,
+      word: e.props.word,
+      surface: e.surface,
+      phrase: decrypt(phrase, age, Math.floor(now / TICK_MS)),
+      catchphrase,
     })
+    const loop = loopKeyOf(e.requestId, stats)
+    const rows = layoutLine({
+      theme,
+      tier,
+      columns: e.viewport?.columns,
+      art,
+      words: rowOne.text,
+      isCatchphrase: rowOne.isCatchphrase,
+      readout: readoutText(stats[loop], now, streaming.get(loop) ?? 0),
+    })
+
+    const { Box, Text } = $.ui.resolve(e)
+    // A Text takes no key, so a keyed run sits in a Box of that key.
+    const runText = ({ text, part: _part, ...paint }: Run, key?: string) => {
+      const drawn = (
+        <Text {...paint} wrap="truncate-end">
+          {text}
+        </Text>
+      )
+
+      return key === undefined ? drawn : <Box key={key}>{drawn}</Box>
+    }
+
+    return (
+      <Box key={play ? `reel:${play.reel}:${play.variant}` : 'line'} flexDirection="column">
+        {rows.map((runs, row) => (
+          <Box flexDirection="row">
+            {runs.some(run => run.part === 'art') ? (
+              <Box key={`art${row}`}>
+                <Text wrap="truncate-end">{runs.filter(run => run.part === 'art').map(run => runText(run))}</Text>
+              </Box>
+            ) : null}
+            {runs
+              .filter(run => run.part !== 'art')
+              .map(run => runText(run, run.part === 'words' || run.part === 'readout' ? run.part : undefined))}
+          </Box>
+        ))}
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'TurnDuration' }, ($, e, next) =>

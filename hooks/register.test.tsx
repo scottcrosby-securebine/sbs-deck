@@ -2,12 +2,28 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, TestBody } from 'claude-code/testing'
 
 import { colorLine } from './color'
+import { HALF_RATE } from './reels/legacy'
 import { ANIMATIONS, AUTO, SPINNER_PHRASES, animationFor, decrypt, phraseFor, scanBar } from './spinner'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
 // The closing sentence the engine puts after a prompt delivered mid-turn.
 const TAIL = '\n\nThis is how Claude Code surfaces messages the user sends mid-turn.'
+
+// A terminal wide and tall enough for the two-row working line with 32-cell art.
+const WIDE = { columns: 120, rows: 40 }
+
+// The working line as drawn: row 1's words, the readout, and both art rows.
+async function drawnLine(ui: { find: (q: { key: string }) => Promise<{ text: string } | undefined> }) {
+  return {
+    words: (await ui.find({ key: 'words' }))?.text ?? '',
+    readout: (await ui.find({ key: 'readout' }))?.text ?? '',
+    art: `${(await ui.find({ key: 'art0' }))?.text ?? ''}\n${(await ui.find({ key: 'art1' }))?.text ?? ''}`,
+  }
+}
+
+// A legacy reel's strip at a frame of its play: a half-rate name moves every other frame.
+const stripAt = (name: string, frame: number) => ANIMATIONS[name]!(HALF_RATE.has(name) ? Math.floor(frame / 2) : frame)
 
 // Quiet tool rows are on by default; the result-drawing tests turn them off.
 const quietOff = ($: Engine) =>
@@ -253,25 +269,17 @@ test('a run of picks shows every phrase of a pool once, and the bar keeps its wi
 
 test('the spinner line carries the phrase and the bar', async ($, on) => {
   mock.clock(on)
-  let word = ''
-  let suffix = ''
-
-  on('ui.render', { component: 'Spinner' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    word = e.props.word
-    suffix = e.props.suffix
-
-    return <Text>spinner</Text>
-  })
 
   const ui = await $.ui.mount({
     plugin: 'sbs-deck',
     surface: 'terminal',
     component: 'Spinner',
+    viewport: WIDE,
     props: { word: 'Baking', message: null, suffix: '…', mode: 'thinking' },
   })
-  expect(SPINNER_PHRASES.thinking.some(phrase => phrase.length === word.length)).toBe(true)
-  expect(Object.values(ANIMATIONS).map(draw => ` ${draw(0)}`)).toContain(suffix)
+  const { words, art } = await drawnLine(ui)
+  expect(SPINNER_PHRASES.thinking.some(phrase => phrase.length === words.length)).toBe(true)
+  expect(Object.values(ANIMATIONS).some(draw => art.startsWith(draw(0)))).toBe(true)
   await ui.unmount()
 })
 
@@ -436,41 +444,28 @@ test('an unknown /sbs option changes nothing', async ($, on) => {
 test('a queued prompt that opens the next turn gets a running spinner', async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
-  let suffix = ''
   on('prompt.submit', ($, e) => ({ text: e.text }))
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
-  on('ui.render', { component: 'Spinner' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    suffix = e.props.suffix
-
-    return <Text>spinner</Text>
-  })
+  // The bar's strip moves on every frame.
+  await sbsCommand($, 'anim bar')
 
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.prompt.submit({ text: 'then this', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
   await $.turn.complete({ answer: 'done', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' })
-
-  // Between turns.
   await clock.advance(450)
-  const idle = await $.ui.mount({
-    plugin: 'sbs-deck',
-    surface: 'terminal',
-    component: 'Spinner',
-    props: { word: 'Baking', message: null, suffix: '…', mode: 'thinking' },
-  })
-  const idleSuffix = suffix
-  await idle.unmount()
 
   await $.turn.start({ text: 'then this', turnId: 't2' })
-  await clock.advance(450)
   const running = await $.ui.mount({
     plugin: 'sbs-deck',
     surface: 'terminal',
     component: 'Spinner',
+    viewport: WIDE,
     props: { word: 'Baking', message: null, suffix: '…', mode: 'thinking' },
   })
-  expect(suffix).not.toBe(idleSuffix)
+  const before = (await drawnLine(running)).art
+  await clock.advance(450)
+  expect((await drawnLine(running)).art).not.toBe(before)
   await running.unmount()
 })
 
@@ -563,14 +558,7 @@ test('an MCP result that mixes text with an image is left to the engine', async 
 test('a spinner back on screen mid-turn is redrawn by a restarted timer', async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
-  let word = ''
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
-  on('ui.render', { component: 'Spinner' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    word = e.props.word
-
-    return <Text>spinner</Text>
-  })
 
   const spinner = (mode: 'thinking' | 'tool-use') =>
     $.ui.mount({
@@ -589,9 +577,9 @@ test('a spinner back on screen mid-turn is redrawn by a restarted timer', async 
   // Back, and left on screen: only the timer redraws it, so the new phrase
   // resolves only if the timer was started again.
   const back = await spinner('tool-use')
-  expect(SPINNER_PHRASES['tool-use']).not.toContain(word)
+  expect(SPINNER_PHRASES['tool-use']).not.toContain((await drawnLine(back)).words)
   await clock.advance(2_000)
-  expect(SPINNER_PHRASES['tool-use']).toContain(word)
+  expect(SPINNER_PHRASES['tool-use']).toContain((await drawnLine(back)).words)
   await back.unmount()
 })
 
@@ -669,13 +657,6 @@ test('every animation draws a fixed-width strip that moves', () => {
 test('/sbs anim picks the spinner animation and refuses an unknown one', async ($, on) => {
   mock.store(on)
   mock.clock(on)
-  let suffix = ''
-  on('ui.render', { component: 'Spinner' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    suffix = e.props.suffix
-
-    return <Text>spinner</Text>
-  })
   const sbs = async (args: string) =>
     JSON.stringify(
       await $.command.run({
@@ -696,9 +677,10 @@ test('/sbs anim picks the spinner animation and refuses an unknown one', async (
     plugin: 'sbs-deck',
     surface: 'terminal',
     component: 'Spinner',
+    viewport: WIDE,
     props: { word: 'Baking', message: null, suffix: '…', mode: 'thinking' },
   })
-  expect(suffix).toBe(` ${ANIMATIONS.wave?.(0)}`)
+  expect((await drawnLine(ui)).art).toStartWith(ANIMATIONS.wave!(0))
   await ui.unmount()
 })
 
@@ -785,7 +767,6 @@ test('a stored animation name is restored only when it names an animation', asyn
   mock.clock(on)
   mock.env(on, { USER: 'tester' })
   const stored: Record<string, unknown> = { animation: 'constructor' }
-  let suffix = ''
   on('store.get', ($, e) => ({ value: stored[e.key] }))
   on('store.set', ($, e) => {
     stored[e.key] = e.value
@@ -794,12 +775,6 @@ test('a stored animation name is restored only when it names an animation', asyn
   })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
-  on('ui.render', { component: 'Spinner' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    suffix = e.props.suffix
-
-    return <Text>spinner</Text>
-  })
   const sbs = async (args: string) =>
     JSON.stringify(
       await $.command.run({
@@ -822,9 +797,10 @@ test('a stored animation name is restored only when it names an animation', asyn
     plugin: 'sbs-deck',
     surface: 'terminal',
     component: 'Spinner',
+    viewport: WIDE,
     props: { word: 'Baking', message: null, suffix: '…', mode: 'thinking' },
   })
-  expect(suffix).toBe(` ${ANIMATIONS.cylon?.(0)}`)
+  expect((await drawnLine(ui)).art).toStartWith(ANIMATIONS.cylon!(0))
   await ui.unmount()
 })
 
@@ -1337,35 +1313,27 @@ test('an MCP result of plain text blocks is colored by the mod', async ($, on) =
   await ui.unmount()
 })
 
-// The word and suffix the Spinner was last drawn with.
-function spinnerProbe(on: Parameters<TestBody>[1]): { word: string; suffix: string } {
-  const drawn = { word: '', suffix: '' }
-  on('ui.render', { component: 'Spinner' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    drawn.word = e.props.word
-    drawn.suffix = e.props.suffix
-
-    return <Text>spinner</Text>
-  })
-
-  return drawn
-}
-
-// The main loop's spinner: one instance, the same id on every surface.
-const spinnerOn = ($: Engine, mode: 'requesting' | 'thinking' | 'tool-input' | 'tool-use', surface: 'terminal' | 'desktop' = 'terminal') =>
+// The main loop's spinner: one instance, the same id on every surface. With
+// no viewport it draws the one-row form.
+const spinnerOn = (
+  $: Engine,
+  mode: 'requesting' | 'thinking' | 'tool-input' | 'tool-use',
+  surface: 'terminal' | 'desktop' = 'terminal',
+  options: { viewport?: { columns: number; rows: number }; requestId?: string; word?: string } = {},
+) =>
   $.ui.mount({
     plugin: 'sbs-deck',
     surface,
     component: 'Spinner',
-    requestId: 'main',
-    props: { word: 'Baking', message: null, suffix: '…', mode },
+    requestId: options.requestId ?? 'main',
+    viewport: options.viewport,
+    props: { word: options.word ?? 'Baking', message: null, suffix: '…', mode },
   })
 
-test('in auto the spinner draws the animation its phrase calls for', async ($, on) => {
+test('in auto the spinner draws the animation its phrase calls for', { timeoutMs: 30_000 }, async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
-  const drawn = spinnerProbe(on)
 
   await $.turn.start({ text: 'go', turnId: 't1' })
   const modes = ['thinking', 'tool-use', 'tool-input', 'requesting'] as const
@@ -1373,15 +1341,17 @@ test('in auto the spinner draws the animation its phrase calls for', async ($, o
 
   for (let step = 0; step < 60; step += 1) {
     const mode = modes[step % modes.length] ?? 'thinking'
-    const ui = await spinnerOn($, mode)
+    const ui = await spinnerOn($, mode, 'terminal', { viewport: WIDE })
     await clock.advance(1_500)
     // Judged on a frame where the phrase reads whole: a resolved phrase still
-    // flickers a character to noise now and then. The bar is the only
-    // animation drawn with these cells.
-    if (SPINNER_PHRASES[mode].includes(drawn.word)) {
-      const name = animationFor(AUTO, drawn.word)
+    // flickers a character to noise now and then.
+    const { words, art } = await drawnLine(ui)
+
+    if (SPINNER_PHRASES[mode].includes(words)) {
+      const name = animationFor(AUTO, words)
       themed += name === 'bar' ? 0 : 1
-      expect(drawn.suffix.includes('▰'), drawn.word).toBe(name === 'bar')
+      const draw = ANIMATIONS[name]!
+      expect(Array.from({ length: 64 }, (_, frame) => draw(frame)).some(strip => art.startsWith(strip)), words).toBe(true)
     }
 
     await ui.unmount()
@@ -1395,15 +1365,14 @@ test('a subagent finishing does not stop the main turn\'s spinner', async ($, on
   mock.store(on)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
-  const drawn = spinnerProbe(on)
 
   await $.turn.start({ text: 'go', turnId: 't1' })
   const ui = await spinnerOn($, 'tool-use')
   await $.turn.complete({ answer: 'found it', durationMs: 5, isAborted: false, turnId: 's1', agentId: 'agent-1', reason: 'answer' })
   // Left on screen and in the same state, only the timer redraws it.
-  expect(SPINNER_PHRASES['tool-use']).not.toContain(drawn.word)
+  expect(SPINNER_PHRASES['tool-use']).not.toContain((await drawnLine(ui)).words)
   await clock.advance(2_000)
-  expect(SPINNER_PHRASES['tool-use']).toContain(drawn.word)
+  expect(SPINNER_PHRASES['tool-use']).toContain((await drawnLine(ui)).words)
   await ui.unmount()
 })
 
@@ -1411,20 +1380,14 @@ test('spinners on the terminal and the desktop each resolve their own phrase', a
   const clock = mock.clock(on)
   mock.store(on)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
-  const words: Record<string, string> = {}
-  on('ui.render', { component: 'Spinner' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    words[e.surface] = e.props.word
-
-    return <Text>spinner</Text>
-  })
 
   await $.turn.start({ text: 'go', turnId: 't1' })
   const terminal = await spinnerOn($, 'tool-input', 'terminal')
-  const desktop = await spinnerOn($, 'tool-use', 'desktop')
+  // `Working` is the desktop's word while its row shows none: the mod's phrase stands.
+  const desktop = await spinnerOn($, 'tool-use', 'desktop', { word: 'Working' })
   await clock.advance(3_000)
-  expect(SPINNER_PHRASES['tool-input']).toContain(words.terminal)
-  expect(SPINNER_PHRASES['tool-use']).toContain(words.desktop)
+  expect(SPINNER_PHRASES['tool-input']).toContain((await drawnLine(terminal)).words)
+  expect(SPINNER_PHRASES['tool-use']).toContain((await drawnLine(desktop)).words)
   await terminal.unmount()
   await desktop.unmount()
 })
@@ -1438,7 +1401,6 @@ test('a subagent starting keeps the main turn\'s phrase and its one reply header
 
     return <Text>{e.props.text}</Text>
   })
-  const drawn = spinnerProbe(on)
   const hasHeader = async (requestId: string) => {
     const ui = await $.ui.mount({
       plugin: 'sbs-deck',
@@ -1457,12 +1419,12 @@ test('a subagent starting keeps the main turn\'s phrase and its one reply header
   expect(await hasHeader('m1')).toBe(true)
   const spinner = await spinnerOn($, 'tool-use')
   await clock.advance(2_000)
-  const phrase = drawn.word
+  const phrase = (await drawnLine(spinner)).words
   expect(SPINNER_PHRASES['tool-use']).toContain(phrase)
 
   await $.turn.start({ text: 'look this up', turnId: 's1', agentId: 'agent-1' })
   await clock.advance(150)
-  expect(drawn.word).toBe(phrase)
+  expect((await drawnLine(spinner)).words).toBe(phrase)
   expect(await hasHeader('m2')).toBe(false)
   await spinner.unmount()
 })
@@ -1516,13 +1478,6 @@ test('spinners for two agents on one surface each resolve and keep their own phr
   const clock = mock.clock(on)
   mock.store(on)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
-  const words: Record<string, string> = {}
-  on('ui.render', { component: 'Spinner' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    words[e.requestId] = e.props.word
-
-    return <Text>spinner</Text>
-  })
   const spinnerFor = (requestId: string, mode: 'thinking' | 'tool-use') =>
     $.ui.mount({
       plugin: 'sbs-deck',
@@ -1535,16 +1490,16 @@ test('spinners for two agents on one surface each resolve and keep their own phr
   await $.turn.start({ text: 'go', turnId: 't1' })
   const first = await spinnerFor('agent-a', 'thinking')
   await clock.advance(2_000)
-  const settled = words['agent-a']
+  const settled = (await drawnLine(first)).words
   expect(SPINNER_PHRASES.thinking).toContain(settled)
 
   // A second spinner enters the same state, then another.
   const second = await spinnerFor('agent-b', 'thinking')
   const third = await spinnerFor('agent-c', 'tool-use')
   await clock.advance(2_000)
-  expect(words['agent-a']).toBe(settled)
-  expect(SPINNER_PHRASES.thinking).toContain(words['agent-b'])
-  expect(SPINNER_PHRASES['tool-use']).toContain(words['agent-c'])
+  expect((await drawnLine(first)).words).toBe(settled)
+  expect(SPINNER_PHRASES.thinking).toContain((await drawnLine(second)).words)
+  expect(SPINNER_PHRASES['tool-use']).toContain((await drawnLine(third)).words)
   await first.unmount()
   await second.unmount()
   await third.unmount()
@@ -1579,13 +1534,6 @@ test('a background agent\'s spinner keeps moving after the main turn ends', asyn
   mock.store(on)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
-  const words: Record<string, string> = {}
-  on('ui.render', { component: 'Spinner' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    words[e.requestId] = e.props.word
-
-    return <Text>spinner</Text>
-  })
 
   await $.turn.start({ text: 'go', turnId: 't1' })
   const background = await $.ui.mount({
@@ -1596,9 +1544,9 @@ test('a background agent\'s spinner keeps moving after the main turn ends', asyn
     props: { word: 'Baking', message: null, suffix: '…', mode: 'tool-use' },
   })
   await $.turn.complete({ answer: 'started it', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' })
-  expect(SPINNER_PHRASES['tool-use']).not.toContain(words['agent-1'])
+  expect(SPINNER_PHRASES['tool-use']).not.toContain((await drawnLine(background)).words)
   await clock.advance(2_000)
-  expect(SPINNER_PHRASES['tool-use']).toContain(words['agent-1'])
+  expect(SPINNER_PHRASES['tool-use']).toContain((await drawnLine(background)).words)
   await background.unmount()
 })
 
@@ -1645,4 +1593,228 @@ test('a line of escaped quotes colors quickly, and quoted strings still color', 
   const colorOf = (text: string, token: string) => colorLine(text).find(segment => segment.text === token)?.style?.color
   expect(colorOf('{"name": "a \\"b\\" c"}', '"name"')).toBe('#FF2E97')
   expect(colorOf('{"name": "a \\"b\\" c"}', '"a \\"b\\" c"')).toBe('#9FD6A8')
+})
+
+// The model beneath the mod: each step streams the text its script gives in
+// one chunk and returns the output tokens it gives (null: no usage).
+function scriptedModel(
+  on: Parameters<TestBody>[1],
+  script: (index: number) => { text: string; tokens: number | null },
+) {
+  on('turn.step', async function* ($, e) {
+    const { text, tokens } = script(e.index)
+
+    if (text.length > 0) {
+      yield { kind: 'text' as const, index: 0, text }
+    }
+
+    return {
+      turnId: e.turnId,
+      index: e.index,
+      answer: text,
+      toolUses: [],
+      stopReason: 'end_turn' as const,
+      usage:
+        tokens === null
+          ? null
+          : { input_tokens: 1, output_tokens: tokens, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'test' },
+    }
+  })
+}
+
+// Reads a stream to its end.
+async function drain(stream: AsyncGenerator<unknown, unknown>) {
+  while (!(await stream.next()).done) {
+    // Each chunk is passed on; only the end matters here.
+  }
+}
+
+test('the working line draws two rows of art beside the phrase and the readout', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  // A legacy reel has no beats, so row 1 is the phrase throughout.
+  await sbsCommand($, 'anim bar')
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  await clock.advance(2_000)
+  expect([...((await ui.find({ key: 'art0' }))?.text ?? '')]).toHaveLength(32)
+  expect([...((await ui.find({ key: 'art1' }))?.text ?? '')]).toHaveLength(32)
+  const { words, readout } = await drawnLine(ui)
+  expect(SPINNER_PHRASES.thinking).toContain(words)
+  expect(readout).toStartWith('2s · ')
+  await ui.unmount()
+})
+
+test('the widths at 80, 79, 60, 59 and none, and rows under 12', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  const cases: [{ columns: number; rows: number } | undefined, number | undefined][] = [
+    [{ columns: 80, rows: 40 }, 32],
+    [{ columns: 79, rows: 40 }, 16],
+    [{ columns: 60, rows: 40 }, 16],
+    [{ columns: 59, rows: 40 }, undefined],
+    [undefined, undefined],
+    [{ columns: 120, rows: 11 }, undefined],
+  ]
+
+  for (const [viewport, width] of cases) {
+    const ui = await spinnerOn($, 'thinking', 'terminal', { viewport })
+    const art = await ui.find({ key: 'art0' })
+    expect(art === undefined ? undefined : [...art.text].length, JSON.stringify(viewport)).toBe(width)
+    await ui.unmount()
+  }
+})
+
+test('the readout counts a scripted turn', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  scriptedModel(on, index => (index === 0 ? { text: 'x'.repeat(400), tokens: 90 } : { text: 'y'.repeat(40), tokens: null }))
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+
+  // Only a tick redraws the line, so each read waits one.
+  const first = $.turn.step({ turnId: 't1', index: 0, model: 'test', effort: 'high', messageCount: 1 })
+  await first.next()
+  await clock.advance(125)
+  expect((await drawnLine(ui)).readout).toEndWith('· ~100 tokens · effort high')
+  await drain(first)
+  await clock.advance(125)
+  expect((await drawnLine(ui)).readout).toEndWith('· 90 tokens · effort high')
+
+  // No usage: the step's estimate stays, with its `~`, until the turn ends.
+  await drain($.turn.step({ turnId: 't1', index: 1, model: 'test', messageCount: 3 }))
+  await clock.advance(125)
+  expect((await drawnLine(ui)).readout).toEndWith('· ~100 tokens · effort high')
+  await ui.unmount()
+})
+
+test('a subagent spinner reads its own turn', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  scriptedModel(on, () => ({ text: '', tokens: 7 }))
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.turn.start({ turnId: 's1', agentId: 'agent-1', text: '' })
+  await drain($.turn.step({ turnId: 's1', index: 0, model: 'test', messageCount: 1, agentId: 'agent-1' }))
+
+  const agent = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE, requestId: 'agent-1' })
+  const main = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  expect((await drawnLine(agent)).readout).toContain('· 7 tokens')
+  expect((await drawnLine(main)).readout).toContain('· 0 tokens')
+  await agent.unmount()
+  await main.unmount()
+})
+
+test('two spinners at once keep their own frame', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  await sbsCommand($, 'anim cylon')
+
+  const main = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  await clock.advance(500)
+  const other = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE, requestId: 'agent-x' })
+  expect((await drawnLine(other)).art).toStartWith(stripAt('cylon', 0))
+  expect((await drawnLine(main)).art).toStartWith(stripAt('cylon', 4))
+  await main.unmount()
+  await other.unmount()
+})
+
+test('the reel\'s frame counts from 0 when it starts on this spinner', async ($, on) => {
+  // Wall-clock tick 8002: a frame read off the clock would draw another strip.
+  mock.clock(on, { now: 1_000_250 })
+  mock.store(on)
+  await sbsCommand($, 'anim bar')
+
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  expect((await drawnLine(ui)).art).toStartWith(stripAt('bar', 0))
+  await ui.unmount()
+})
+
+test('a spinner hidden for several loops resumes at its loop start', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  // Cylon's strip differs on each of frames 0 to 8 and repeats every 30.
+  await sbsCommand($, 'anim cylon')
+
+  const shown = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  await clock.advance(2_000)
+  await shown.unmount()
+  // 31 s in all, 248 frames: not a whole number of 64-frame loops, so a jump
+  // by whole loops or a modulo would land on frame 56.
+  await clock.advance(29_000)
+
+  const back = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  expect((await drawnLine(back)).art).toStartWith(stripAt('cylon', 0))
+
+  for (let frame = 1; frame <= 8; frame += 1) {
+    await clock.advance(125)
+    expect((await drawnLine(back)).art, `frame ${frame}`).toStartWith(stripAt('cylon', frame))
+  }
+
+  await back.unmount()
+})
+
+test('the desktop draws the one-row form', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+
+  const ui = await spinnerOn($, 'thinking', 'desktop', { viewport: WIDE })
+  expect(await ui.find({ key: 'art0' })).toBeUndefined()
+  expect(await ui.find({ key: 'words' })).toBeDefined()
+  expect(await ui.find({ key: 'readout' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('an engine message with an escape sequence and a tab draws clean', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+
+  const ui = await $.ui.mount({
+    plugin: 'sbs-deck',
+    surface: 'terminal',
+    component: 'Spinner',
+    requestId: 'main',
+    viewport: WIDE,
+    props: { word: 'Baking', message: 'Compacting\u001b[2K\tnow', suffix: '…', mode: 'thinking' },
+  })
+  expect((await drawnLine(ui)).words).toBe('Compacting    now')
+  const wrapOf = async (key: string) => ((await ui.find({ key }))?.children[0] as { props: Record<string, unknown> } | undefined)?.props.wrap
+  expect(await wrapOf('words')).toBe('truncate-end')
+  expect(await wrapOf('readout')).toBe('truncate-end')
+  await ui.unmount()
+})
+
+test('an instance not drawn for 10 minutes is dropped at the next main turn', async ($, on) => {
+  // Every read below falls off the decrypt glitch tick (a tick that is a multiple of 23).
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  // No viewport: the one-row form, where no reel plays and so no catchphrase
+  // stands in for the phrase.
+  const agent = () => spinnerOn($, 'thinking', 'terminal', { requestId: 'agent-2' })
+
+  await $.turn.start({ text: '', turnId: 's2', agentId: 'agent-2' })
+  let ui = await agent()
+  await clock.advance(2_000)
+  expect(SPINNER_PHRASES.thinking).toContain((await drawnLine(ui)).words)
+  await ui.unmount()
+
+  // Away 9 minutes: kept, so its first draw shows the phrase resolved (tick 4336).
+  await clock.advance(9 * 60_000)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  ui = await agent()
+  expect(SPINNER_PHRASES.thinking).toContain((await drawnLine(ui)).words)
+  await ui.unmount()
+
+  // Away 11 minutes: dropped, so it decrypts afresh (tick 9616).
+  await clock.advance(11 * 60_000)
+  await $.turn.start({ text: 'go', turnId: 't2' })
+  ui = await agent()
+  expect(SPINNER_PHRASES.thinking).not.toContain((await drawnLine(ui)).words)
+  await ui.unmount()
 })
