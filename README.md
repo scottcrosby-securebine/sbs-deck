@@ -161,3 +161,8 @@ fails without it, or, by the owner's ruling, is listed under Known limits.
 The Night City theme, the two-row working line with its readout and the
 twelve reels are not yet reviewed. The test suite passes, 239 tests, on Claude
 Code 2.1.302.
+The live checks this host can run passed in tmux in October 2026: both themes at
+80, 60 and 40 columns, 256 colors, a subagent turn and a reload, `/sbs anim off`,
+`/clear`, the missing-index toast and `auto` in use. The owner's checks are
+pending: herdr remote, the eight named terminals, the desktop app, a light
+terminal and the twelve-reel review.
