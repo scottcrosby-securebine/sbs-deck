@@ -18,8 +18,10 @@ import { noise } from '../canvas'
 // appears on it from the middle out: a glass bubble head with brain lights
 // flickering yellow and red, broad aqua shoulders, a chest of chasing lights,
 // aqua treads. His yellow accordion arms unfold and he flails them, each
-// swinging between hanging down and overhead, aqua claws at the tips. The
-// planet closes in from both edges into the stars, the Robot last.
+// swinging between hanging down and overhead, aqua claws at the tips. He
+// holds his last pose as the planet closes in from both edges into the stars,
+// the Robot last. The bright far stars light one by one after the loop opens
+// and dim one by one before it ends, so the wrap to a new seed stays quiet.
 //
 // The seed picks the stars (place, ink, the near and mid layers' rows),
 // which way the saucer flies, how far it drifts while it holds and how hard
@@ -32,6 +34,8 @@ const BOOST = 26 // the saucer pulls away
 const SCENE = 30 // the planet wipes in behind it, 4 columns a frame
 const ROBOT = 36 // the Robot appears from the middle out, a column each side a frame
 const ARMS = 39 // his arms appear, hanging, before he starts to wave
+const HOLD = 54 // the Robot holds his last pose
+const LIT = 50 // the far stars dim, one a frame, from here
 const CLEAR = 60 // the planet wipes out from both edges in, 4 columns a side a frame
 const WIPE = 4
 
@@ -148,7 +152,10 @@ function draw(c: Canvas, t: number, seed: number) {
   // The arms swing a quarter period apart, give or take, so they never cross
   // the middle on the same frame.
   const offset = (noise(seed, 42) < 0.5 ? 0.2 : 0.7) + 0.1 * noise(seed, 43)
-  const swing = (k: number) => t < start ? -1 : -Math.cos(2 * Math.PI * ((t - start) / period + k * offset))
+  // From HOLD he holds his last pose until the planet wipes out under him, so
+  // no arm cell changes twice around the loop's end.
+  const at = Math.min(t, HOLD)
+  const swing = (k: number) => at < start ? -1 : -Math.cos(2 * Math.PI * ((at - start) / period + k * offset))
   // They unfold from the shoulders, three dots a frame.
   const reach = Math.min(9, (t - ARMS + 1) * 3)
   const arm = (sx: number, dir: number, lift: number) => {
@@ -179,11 +186,17 @@ function draw(c: Canvas, t: number, seed: number) {
     const layer = i < 5 ? 0 : i < 13 ? 1 : 2
     const v = [0.5, 1, 2][layer]!
     const y = i === 13 ? 1 + Math.floor(noise(seed, 10, i) * 2) : i === 14 ? 5 + Math.floor(noise(seed, 10, i) * 2) : Math.floor(noise(seed, 10, i) * (layer ? 8 : 4))
-    const x0 = i === 14 ? noise(seed, 12, 13) * 64 + 32 : layer ? noise(seed, 12, i) * 64 : i * 13 + noise(seed, 12, i) * 5
+    // A far star starts on an odd dot, so it steps into a new cell only on
+    // frames 0 mod 4 (1 mod 4 flying left), never with the arrival's or the
+    // flare's crowd.
+    const x0 = i === 14 ? noise(seed, 12, 13) * 64 + 32 : layer ? noise(seed, 12, i) * 64 : i * 13 + 1 + 2 * Math.floor(noise(seed, 12, i) * 3)
     const x = (((x0 - d * v * (layer ? travel : t)) % 64) + 64) % 64
     const bright = noise(seed, 13, i) < 0.5
     const bold = streak > 0 && i >= 13 && i < 13 + 2
-    const ink: Ink = bold ? (bright ? 'spark' : 'cool') : layer === 0 ? (bright ? 'spark' : 'cool') : c.mix(bright ? 'spark' : 'cool', 'base', 0.5)
+    // The far stars light one by one after the loop opens and dim one by one
+    // before it ends, so a seed change at the wrap moves only dim stars.
+    const lit = layer === 0 && t >= 4 + i && t < LIT + i
+    const ink: Ink = bold || lit ? (bright ? 'spark' : 'cool') : c.mix(bright ? 'spark' : 'cool', 'base', 0.5)
     const tail = bold ? Math.round(v * 6 * streak) + 1 : layer ? Math.round(v * 3 * streak) + layer - 1 : 0
     for (let k = 0; k <= tail; k++) dot(x + d * k, y, k ? (bold && k <= tail / 2 ? 'cool' : c.mix('cool', 'base', 0.5)) : ink, k ? 1 : layer ? 2 : 3)
   }
