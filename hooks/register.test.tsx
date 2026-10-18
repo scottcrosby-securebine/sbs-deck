@@ -2780,8 +2780,14 @@ const ALL_OFF = Object.fromEntries(NEW_REELS.map(r => [reelField(r.name), false]
 test('every launch reel has its /config field, so session start toasts no plugin.json line', async ($, on) => {
   mock.store(on)
   mock.clock(on)
+  mock.env(on, { USER: 'tester' })
   const toasts: string[] = []
-  on('fs.list', () => ({ value: [] }))
+  let asked = ''
+  on('fs.list', ($, e) => {
+    asked = e.path
+
+    return { value: [] }
+  })
   on('ui.toast', ($, e) => {
     toasts.push(e.text)
 
@@ -2789,6 +2795,8 @@ test('every launch reel has its /config field, so session start toasts no plugin
   })
 
   await startSession($, on)
+  // The hook ran as far as the reel listing, just before the toast.
+  expect(asked).toEndWith('/hooks/reels')
   expect(toasts.join('\n')).not.toContain('plugin.json')
   expect(JSON.stringify(await sbsCommand($, 'anim list'))).not.toContain('plugin.json')
 })
@@ -2854,6 +2862,16 @@ test('/sbs anim next steps past a reel switched off, and its name still pins it'
 
   await sbsCommand($, 'anim')
   expect(stored.animation).toBe(after)
+})
+
+test('a pinned off reel plays, and back in auto it is skipped again', { options: { reelBreach: false } }, async ($, on) => {
+  fakeStore(on)
+  mock.clock(on)
+  await sbsCommand($, 'anim breach')
+  expect(nameOf(await firstKey($, 'thinking'))).toBe('breach')
+  await sbsCommand($, 'anim auto')
+
+  for (let k = 0; k < 6; k += 1) expect(nameOf(await firstKey($, 'thinking')), `draw ${k}`).not.toBe('breach')
 })
 
 test('/sbs anim list marks reels switched off, and /sbs status names them and the way back', {

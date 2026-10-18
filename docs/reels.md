@@ -16,7 +16,7 @@ With no reel there is no catchphrase either. Both themes draw the line on a blac
 
 Commands:
 
-- `/sbs anim list` prints every reel name. Legacy reels are marked, the rare reel is marked, reels switched off in `/config` are marked `(off)`, and any reel file missing from the index or from `plugin.json` is listed with the line to add.
+- `/sbs anim list` prints every reel name. Legacy reels are marked, the rare reel is marked, reels switched off in `/config` are marked `(off)`, any reel file missing from the index is listed with the line to add, and so is any indexed reel missing its `plugin.json` field.
 - `/sbs anim <name>` pins one reel everywhere. `/sbs anim auto` returns to the picker. `/sbs anim off` stops all motion.
 - `/sbs anim` or `/sbs anim next` steps to the next new reel. It skips the rare reel and reels switched off, and it never lands on a legacy reel: those 22 are reached by name only.
 - `/config`, search `Reel`: one switch per new reel, on by default. A reel switched off is never picked in `auto` and the rare roll skips it, but `/sbs anim <name>` still pins it. `/sbs status` names the reels that are off.
@@ -36,7 +36,7 @@ In `auto`, the picker reads what Claude is doing and draws from that context's p
 | `requesting` | Claude is sending a request | Hokuto Shinken (flurry variant), Sandevistan |
 | `other` | Anything else | Every reel that is not rare, not legacy and not Forest spirit |
 
-The pools come from each reel's `contexts` list, so a new reel joins a pool by naming it there. `other` is never written in `contexts`. A context that no reel names, or whose reels are all switched off in `/config`, falls back to the `other` pool without the reels switched off. With every new reel off, `auto` plays the legacy `bar`.
+The pools come from each reel's `contexts` list, so a new reel joins a pool by naming it there. `other` is never written in `contexts`. A context that no reel names, or whose reels are all switched off in `/config`, falls back to the `other` pool without the reels switched off. Where that leaves nothing, `auto` plays the legacy `bar`: with every new reel off, or with only Forest spirit and the Eye of Sauron on (neither is in `other`), everywhere but `long-wait`.
 
 - One shuffled bag per context, shared by every spinner in the session. No reel repeats until the bag is empty, and a refill never starts with the reel that just played. Bags reset at session start, at `/clear`, and when a `/config` reel switch changes.
 - A spinner draws from the bag when it first appears and each time its reel finishes a loop. Each loop takes a fresh random seed, so no two loops are alike.
@@ -179,9 +179,9 @@ Do this in the git clone that the README installs at `~/.claude/mods/sbs-deck`. 
    The mod only loads files that `index.ts` names. If you forget the line, a toast at session start names it and `/sbs anim list` prints the exact line for every reel file left out.
 3. Add its `/config` switch to `userConfig` in `.claude-plugin/plugin.json`. The field is `reel` plus the name with its first letter capitalized:
    ```json
-   "reelMine": { "type": "boolean", "title": "Reel: My reel", "description": "From where the idea comes from. In auto it plays for shell commands and anything else.", "required": false, "default": true }
+   "reelMine": { "type": "boolean", "title": "Reel: My reel", "description": "From where the idea comes from.", "required": false, "default": true }
    ```
-   Without it the reel plays as if switched on but has no row in `/config`. A toast at session start and `/sbs anim list` give the line to add, and `claude plugin test .` fails until it is there.
+   Add to the description where `auto` plays it, as the other fields do. Without the field the reel plays as if switched on but has no row in `/config`. A toast at session start and `/sbs anim list` give the line to add, and `claude plugin test .` fails until it is there.
 4. Draw it, and run `claude plugin test .` until it passes. The test checks only reels named in the index, so a reel without its line is never tested. The whole suite takes about a minute.
 5. Reload. Claude Code watches the folder, so a running session picks the change up once the main loop is idle, not while a turn runs. Pin the reel with `/sbs anim <name>` and watch it at 80 columns or wider. Then try 70 columns for the 16-cell form.
 6. Run the other checks from the README before you commit.

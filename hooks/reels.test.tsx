@@ -61,7 +61,7 @@ test('a launch reel with no /config field gets the exact plugin.json line to add
   expect(unlistedFields(full)).toEqual([])
   const { reelHokuto: _gone, ...rest } = full
   expect(unlistedFields(rest)).toEqual([
-    '"reelHokuto": {"type":"boolean","title":"Reel: Hokuto Shinken","description":"From Fist of the North Star.","default":true}',
+    '"reelHokuto": {"type":"boolean","title":"Reel: Hokuto Shinken","description":"From Fist of the North Star.","required":false,"default":true}',
   ])
 })
 

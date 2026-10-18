@@ -32,4 +32,4 @@ export const offReels = (options: Readonly<Record<string, unknown>>): string[] =
 // every field the manifest declares, so a missing key is a missing line.
 export const unlistedFields = (options: Readonly<Record<string, unknown>>): string[] =>
   NEW_REELS.filter(r => !Object.hasOwn(options, reelField(r.name))).map(r =>
-    `${JSON.stringify(reelField(r.name))}: ${JSON.stringify({ type: 'boolean', title: `Reel: ${r.title}`, description: `From ${r.source}.`, default: true })}`)
+    `${JSON.stringify(reelField(r.name))}: ${JSON.stringify({ type: 'boolean', title: `Reel: ${r.title}`, description: `From ${r.source}.`, required: false, default: true })}`)
