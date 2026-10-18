@@ -4,20 +4,13 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 import { cleanLine, colorLine } from './color'
 import { ANIMATIONS, AUTO, animationFor, decrypt, phraseFor } from './spinner'
 import type { SpinnerMode } from './spinner'
-
-// SecureBine site tokens (website_v3 app/globals.css, dark theme).
-const GOLD = '#F5A701'
-const INK_DIM = '#8FA3B0'
-// The site's floating-surface blue: a prompt still waiting to be read.
-const SLATE = '#46637B'
+import { ROLES } from './theme'
+import type { Role, ThemeName } from './theme'
 
 // Nerd Font icons, written as escapes so no editor or pipe can drop them: a
 // shield for the operator and a robot for the assistant.
 const OPERATOR_ICON = '\uF132'
 const ASSISTANT_ICON = '\u{F06A9}'
-// The cyberpunk accents: neither is a site token.
-const NEON_CYAN = '#00E5FF'
-const NEON_MAGENTA = '#FF2E97'
 
 // The spinner's animation clock: a timer advances it while a turn runs, and
 // the Spinner hook reads it, so each tick redraws that one line alone.
@@ -295,6 +288,8 @@ export const register: Register = on => {
   // row is the engine's own again, folding and ctrl+o with it, only with quiet
   // and coloring both off.
   let isEnabled = true
+  let theme: ThemeName = 'securebine'
+  const paint = (role: Role) => ROLES[theme][role]
   // Quiet: each tool call is one line saying what it is for, and its output is
   // not drawn unless it failed.
   let isQuiet = true
@@ -582,16 +577,18 @@ export const register: Register = on => {
     const inner = await next(e)
     const prompt = comparable(e.props.text)
     const isWaiting = waitingPrompts.has(prompt)
-    const accent = isWaiting ? SLATE : GOLD
+    const label = paint(isWaiting ? 'queued' : 'label')
 
     return (
-      <Box flexDirection="column" borderStyle="single" borderColor={accent} paddingX={1}>
+      <Box flexDirection="column" borderStyle="single" borderColor={paint(isWaiting ? 'queuedFrame' : 'frame').color} paddingX={1}>
         <Box flexDirection="row">
-          <Text color={accent}>{OPERATOR_ICON} </Text>
-          <Text bold color={accent}>
+          <Text color={label.color} backgroundColor={label.backgroundColor}>
+            {OPERATOR_ICON}{' '}
+          </Text>
+          <Text {...label}>
             OPERATOR // {isWaiting ? 'QUEUED' : 'UPLINK'}:
           </Text>
-          <Text color={INK_DIM}> {cleanLine(account ?? username)}</Text>
+          <Text {...paint('dim')}> {cleanLine(account ?? username)}</Text>
         </Box>
         {/* The engine's row opens with a blank line; the eyebrow takes it. */}
         <Box flexDirection="column" marginTop={-1}>
@@ -618,15 +615,18 @@ export const register: Register = on => {
 
     const { Box, Text } = $.ui.resolve(e)
     const inner = await next(e)
+    const header = paint('header')
 
     return (
       <Box flexDirection="column">
         <Box flexDirection="row">
-          <Text color={NEON_CYAN}>{ASSISTANT_ICON} </Text>
-          <Text bold color={NEON_CYAN}>
+          <Text color={header.color} backgroundColor={header.backgroundColor}>
+            {ASSISTANT_ICON}{' '}
+          </Text>
+          <Text {...header}>
             {replyName()}
           </Text>
-          <Text color={INK_DIM}> // DOWNLINK</Text>
+          <Text {...paint('dim')}> // DOWNLINK</Text>
         </Box>
         {/* The engine's block opens with a blank line; the header takes it. */}
         <Box flexDirection="column" marginTop={-1}>
@@ -645,12 +645,12 @@ export const register: Register = on => {
     const { Box, Text } = $.ui.resolve(e)
     const hasFailed = e.props.isErrored || e.props.isInterrupted
     const mark = e.props.isRunning ? '▸' : hasFailed ? '✗' : '✓'
-    const markColor = e.props.isRunning ? NEON_CYAN : hasFailed ? '#FF5555' : '#3EE08A'
+    const markPaint = paint(e.props.isRunning ? 'markRunning' : hasFailed ? 'markFailed' : 'markDone')
 
     return (
       <Box flexDirection="row">
-        <Text color={markColor}>  {mark} </Text>
-        <Text color={e.props.isRunning ? undefined : INK_DIM} wrap="truncate-end">
+        <Text {...markPaint}>  {mark} </Text>
+        <Text {...(e.props.isRunning ? {} : paint('dim'))} wrap="truncate-end">
           {summaryOf(e.props.tool, e.props.input)}
         </Text>
       </Box>
@@ -685,17 +685,13 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="row">
-        <Text color={INK_DIM}>{'  ⎿  '}</Text>
+        <Text {...paint('dim')}>{'  ⎿  '}</Text>
         <Box flexDirection="column" flexGrow={1} flexShrink={1}>
           {lines.slice(0, MAX_RESULT_LINES).map(line => (
             <Text wrap="wrap">
-              {colorLine(line).map(segment =>
+              {colorLine(line, theme).map(segment =>
                 segment.style ? (
-                  <Text
-                    color={segment.style.color}
-                    bold={segment.style.bold}
-                    underline={segment.style.underline}
-                  >
+                  <Text {...segment.style}>
                     {segment.text}
                   </Text>
                 ) : (
@@ -705,7 +701,7 @@ export const register: Register = on => {
             </Text>
           ))}
           {hidden > 0 ? (
-            <Text color={INK_DIM}>
+            <Text {...paint('dim')}>
               … +{hidden} lines (/sbs color for the full uncolored view)
             </Text>
           ) : null}
