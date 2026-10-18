@@ -131,37 +131,46 @@ function thug(c: Canvas, seed: number, t: Thug) {
   for (const dx of legs) c.pix(cx + dx + Math.sign(dx + 0.5) * (s >> 1), 3, t.body)
 }
 
-// The burst, k frames after it: a yellow core that shrinks, a red wash over
-// the canvas, and a red and dark red spray of dots thrown out, slowing and
-// falling to stain the ground.
+// The burst, k frames after it: a yellow core that shrinks and a red wash
+// over the canvas that deepens, then fades.
 function burstBack(c: Canvas, k: number, cx: number) {
   if (k >= 1 && k < 24) {
-    const wash: Ink = k < 12 ? c.mix('hot', 'base', 0.75) : c.mix('deep', 'base', 0.75)
+    const wash: Ink = k >= 2 && k <= 8 ? c.mix('hot', 'base', 0.5) : k < 16 ? c.mix('hot', 'base', 0.75) : c.mix('deep', 'base', 0.75)
     for (let col = 0; col < c.cols; col++) for (const row of [0, 1]) c.bg(col, row, wash)
   }
-  const core = [4, 3, 2, 1, 1][k]
+  const core = [4, 3, 3, 2, 2, 1][k]
   if (core === undefined) return
   for (let col = cx - core; col < cx + core; col++) {
-    for (const row of [0, 1]) c.bg(col, row, k < 3 ? 'spark' : c.mix('spark', 'base', 0.5))
+    for (const row of [0, 1]) c.bg(col, row, k < 4 ? 'spark' : c.mix('spark', 'base', 0.5))
   }
 }
-function spray(c: Canvas, seed: number, k: number, cx: number) {
-  if (k < 1 || k >= 22) return
-  // The spray slows as it spreads and falls; each drop streaks behind it.
+
+// The splash: red and dark red half-block chunks thrown out of the core,
+// slowing and falling; each lands as a dark red stain on the ground, kept
+// until `dry`. `blocked` names the columns holding braille dots (Ken, the
+// Dipper), which the chunks keep out of so pixels and dots never share a cell.
+function splash(c: Canvas, seed: number, k: number, cx: number, dry: boolean, blocked: (col: number) => boolean) {
+  if (k < 1) return
+  const big = c.cols === 32
   const at = (i: number, t: number) => {
-    const reach = 6 * (1 - Math.exp(-t / 5))
-    const vx = (noise(seed, 50, i) - 0.6) * (c.cols === 32 ? 7 : 4.4)
-    const vy = (noise(seed, 51, i) - 0.65) * 1.8
-    return [Math.round(cx * 2 + vx * reach), Math.round(3.5 + vy * reach + 0.035 * t * t)] as const
+    const reach = (big ? 11 : 5) * (1 - Math.exp(-t / 4))
+    const vx = noise(seed, 50, i) - 0.65
+    const vy = (noise(seed, 51, i) - 0.7) * 1.4
+    return [Math.round(cx - 0.5 + vx * reach * 2), 1.5 + vy * reach + 0.03 * t * t] as const
   }
-  for (let i = 0; i < 40; i++) {
-    const head: Ink = k < 4 && i % 4 === 0 ? 'spark' : i % 2 ? 'hot' : c.mix('hot', 'deep', 0.5)
-    for (const [d, ink] of [[2, 'deep'], [1, c.mix('hot', 'deep', 0.5)], [0, head]] as const) {
-      if (k - d < 1) continue
-      const [x, y] = at(i, k - d)
-      // A drop that reaches the ground stains it dark red.
-      c.put(x, Math.min(7, y), y >= 7 ? 'deep' : ink, 2)
+  for (let i = 0; i < (big ? 30 : 16); i++) {
+    // The tick it lands, if it does within 22.
+    let land = 1
+    while (land < 22 && at(i, land)[1] < 3.5) land++
+    if (k >= land) {
+      const [x] = at(i, land)
+      if (!dry && !blocked(x)) c.pix(x, 3, 'deep')
+      continue
     }
+    const [x, y] = at(i, k)
+    const [px, py] = at(i, k - 1)
+    if (k > 1 && !blocked(px) && py >= 0) c.pix(px, Math.round(py), 'deep')
+    if (!blocked(x) && y >= -0.5) c.pix(x, Math.max(0, Math.round(y)), i % 3 === 0 ? 'hot' : c.mix('hot', 'deep', 0.5))
   }
 }
 
@@ -198,15 +207,16 @@ function flurry(c: Canvas, f: number, seed: number) {
   const lit = f < RUSH ? Math.min(4, hits >> 1) : Math.min(7, 5 + Math.floor((f - RUSH) / 6))
   const swell = f < 60 ? 0 : f < 68 ? 1 : f < POP ? 2 : 0 // it grows on frames that throb down
   const first = noise(seed, 20) < 0.5 ? 1 : 0
+  const gap = big ? 6 : 3 // dots between a fist and its ghosts
   if (f < 34) {
     for (let j = 0; j < 15; j++) {
       const at = 2 + 2 * j
       if (f < at || f > at + 2) continue
       const row = (j + first) & 1
       const x = Math.round(x0 + (x1 - x0) * (f - at) / 2)
-      for (let col = Math.max(x0, x - 12) >> 1; col <= (x + 3) >> 1; col++) c.bg(col, row, c.mix('hot', 'base', 0.75))
-      if (x - 12 >= x0) sprite(c, FIST, x - 12, row * 4, 'deep', 1)
-      if (x - 6 >= x0) sprite(c, FIST, x - 6, row * 4, 'hot', 2)
+      for (let col = Math.max(x0, x - 2 * gap) >> 1; col <= (x + 3) >> 1; col++) c.bg(col, row, c.mix('hot', 'base', 0.75))
+      if (x - 2 * gap >= x0) sprite(c, FIST, x - 2 * gap, row * 4, 'deep', 1)
+      if (x - gap >= x0) sprite(c, FIST, x - gap, row * 4, 'hot', 2)
       sprite(c, FIST, x, row * 4, 'spark', 4)
     }
   } else if (f >= 37 && f <= RUSH) {
@@ -244,7 +254,7 @@ function flurry(c: Canvas, f: number, seed: number) {
     const throb = swell > 0 && (f >> 1) & 1
     thug(c, seed, { cx, swell, body: struck || throb ? 'hot' : 'deep', lit, point: 'spark', cracks: f >= 60 ? (f - 58) / 40 : 0 })
   } else {
-    spray(c, seed, f - POP, cx)
+    splash(c, seed, f - POP, cx, f >= FLURRY - WALK, col => col <= (kx + 7) >> 1)
     if (f >= FLURRY - WALK) thug(c, seed + 1, { cx: cx + FLURRY - f, swell: 0, body: 'deep', lit: 0, point: 'spark', cracks: 0 })
   }
 }
@@ -262,8 +272,24 @@ function sevenStars(c: Canvas, f: number, seed: number) {
   }
   if (f >= HIDEBU) burstBack(c, f - HIDEBU, cx)
 
+  let body: Ink = 'deep', point: Ink = 'spark', swell = 0, cracks = 0
+  if (f >= HELD && f < NANI) {
+    // The held moment: a throb every 6 frames.
+    const out = (f - HELD) % 6 < 3
+    body = out ? 'hot' : 'deep'
+    point = out ? 'spark' : c.mix('spark', 'base', 0.5)
+  } else if (f >= NANI && f < HIDEBU) {
+    // NANI?!: a jolt, then the swell, throbbing every 4 frames.
+    const k = f - NANI
+    swell = k < 6 ? 0 : k < 16 ? 1 : k < 26 ? 2 : 3
+    body = k < 2 || (k >> 1) & 1 ? 'hot' : 'deep'
+    cracks = k < 6 ? 0 : (k - 4) / 40
+  }
   // The Dipper: its lines draw a segment every 3 frames from frame 10 and
-  // go out in reverse after the burst.
+  // go out in reverse after the burst. On 16 columns the swelling thug
+  // grows under the bowl's edge: the Dipper gives way to him there.
+  const edge = cx - (big ? 4 : 3) - swell
+  const sky = (x: number, y: number, ink: Ink, priority: number) => { if (x >> 1 < edge) c.put(x, y, ink, priority) }
   const star = (i: number) => [ox + STARS[i]![0], STARS[i]![1]] as const
   SEGMENTS.forEach(([a, b], k) => {
     const from = 10 + 3 * k
@@ -271,13 +297,13 @@ function sevenStars(c: Canvas, f: number, seed: number) {
     if (f < from || f >= gone) return
     const dots = line(star(a), star(b))
     const shown = Math.min(dots.length, Math.ceil(dots.length * (f - from + 1) / 3))
-    dots.slice(0, shown).forEach(([x, y]) => c.put(x, y, 'cool', 1))
+    dots.slice(0, shown).forEach(([x, y]) => sky(x, y, 'cool', 1))
   })
   STARS.forEach((_, i) => {
     const [x, y] = star(i)
     if (f < i || f >= HIDEBU + 26) return
     if (f >= BLAZE && f < BLAZE + 4) c.bg(x >> 1, y >> 2, c.mix('spark', 'base', 0.5))
-    c.put(x, y, f < BLAZE ? c.mix('spark', 'base', 0.5) : 'spark', 5)
+    sky(x, y, f < BLAZE ? c.mix('spark', 'base', 0.5) : 'spark', 5)
   })
   // Alcor kindles red beside Mizar from frame 30 and pulses.
   if (f >= 30 && f < HIDEBU + 20) {
@@ -294,29 +320,19 @@ function sevenStars(c: Canvas, f: number, seed: number) {
     if (f >= 28 && f < HELD) {
       const j = Math.floor((f - 28) / 2)
       const y = (j & 1) * 4 + 1 + (j % 3 === 0 ? 1 : 0)
-      const x = kx + 8 + ((f - 28) % 2) * 3
-      for (let i = 0; i < 4; i++) c.put(x + i, y, 'cool', 2)
+      // Dots 37 to 41: it stops a cell short of the thug.
+      const x = kx + 7 + ((f - 28) % 2) * 2
+      for (let i = 0; i < 3; i++) c.put(x + i, y, 'cool', 2)
     }
   }
 
-  let body: Ink = 'deep', point: Ink = 'spark', swell = 0, cracks = 0
-  if (f >= HELD && f < NANI) {
-    // The held moment: a throb every 6 frames.
-    const out = (f - HELD) % 6 < 3
-    body = out ? 'hot' : 'deep'
-    point = out ? 'spark' : c.mix('spark', 'base', 0.5)
-  } else if (f >= NANI && f < HIDEBU) {
-    // NANI?!: a jolt, then the swell, throbbing every 4 frames.
-    const k = f - NANI
-    swell = k < 6 ? 0 : k < 16 ? 1 : k < 26 ? 2 : 3
-    body = k < 2 || (k >> 1) & 1 ? 'hot' : 'deep'
-    cracks = k < 6 ? 0 : (k - 4) / 40
-  }
   if (f < HIDEBU) {
     thug(c, seed, { cx, swell, body, lit: strikes, point, cracks })
   } else {
-    spray(c, seed, f - HIDEBU, cx)
-    if (f >= SEVEN - WALK) thug(c, seed + 1, { cx: cx + SEVEN - f, swell: 0, body: 'deep', lit: 0, point: 'spark', cracks: 0 })
+    // The splash keeps out of the Dipper's and Ken's columns; the new thug
+    // walks in once it has landed.
+    splash(c, seed, f - HIDEBU, cx, f >= SEVEN - 6, col => col <= (ox >> 1) + 9 || (big && col >= kx >> 1 && col <= (kx + 7) >> 1))
+    if (f >= SEVEN - 6) thug(c, seed + 1, { cx: cx + SEVEN - f, swell: 0, body: 'deep', lit: 0, point: 'spark', cracks: 0 })
   }
 }
 

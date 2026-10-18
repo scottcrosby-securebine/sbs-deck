@@ -1943,6 +1943,11 @@ test('a pinned reel\'s variants rotate across loops and turns', { timeoutMs: 30_
   await $.turn.start({ text: 'go', turnId: 't1' })
   await clock.advance(125)
   expect(await reelKey(ui)).toBe('reel:hokuto:flurry')
+
+  // A second turn steps on again: a rotation reset at each turn would replay flurry.
+  await $.turn.start({ text: 'go', turnId: 't2' })
+  await clock.advance(125)
+  expect(await reelKey(ui)).toBe('reel:hokuto:seven-stars')
   await ui.unmount()
 })
 
