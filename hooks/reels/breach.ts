@@ -79,7 +79,8 @@ function solve(c: Canvas, seed: number, k: number, s: number) {
       if (booting && n >= (s + 1) * 2) continue
       const x = i * 3
       let bg: Ink = band(r, i) ? 'hot' : plate
-      let fg: Ink = band(r, i) || (booting && n >= s * 2) ? 'spark' : x >= front - 4 ? 'hot' : idle
+      // Band codes are black on red: they read in both themes (gold on magenta does not).
+      let fg: Ink = band(r, i) ? 'base' : booting && n >= s * 2 ? 'spark' : x >= front - 4 ? 'hot' : idle
       if (isPicked(r, i)) [bg, fg] = ['spark', 'base']
       if (cursor && cursor[0] === r && cursor[1] === i) [bg, fg] = ['cool', 'base']
       const text = code(r, i)
@@ -125,18 +126,21 @@ function solve(c: Canvas, seed: number, k: number, s: number) {
     c.glyph(24 + j, 1, ch, lit ? (k === 0 ? 'spark' : 'base') : 'hot')
   })
 
-  // The upload bar across the grid's bottom row: a 2-column yellow head, then
-  // a glint that runs the full bar while it holds.
+  // The upload bar across the grid's bottom row fills from the center out, a
+  // column each way a frame behind a yellow head, so the 16-column crop sees
+  // the head on the beat; then a glint runs outward while the full bar holds.
   if (s >= UPLOAD) {
     const [top, bottom]: [Ink, Ink] = k === 0 ? ['hot', 'deep'] : ['cool', c.mix('cool', 'base', 0.5)]
     const empty: Ink = k === 0 ? c.mix('deep', 'base', 0.5) : c.mix('cool', 'base', 0.75)
-    const filled = Math.min(24, (s - UPLOAD) * 2 + 2)
-    const glint = s >= FULL ? (s - FULL) * 3 : -9
+    const reach = Math.min(12, s - UPLOAD + 1) // columns filled each side of center
+    const glint = s >= FULL ? (s - FULL) * 2 : -9
     for (let x = 0; x < 24; x++) {
-      const head = s < FULL && x >= filled - 2 && x < filled
-      const shine = x >= glint && x < glint + 2
-      c.pix(x, 2, head || shine ? 'spark' : x < filled ? top : empty)
-      c.pix(x, 3, head ? 'spark' : x < filled ? bottom : empty)
+      const out = x < 12 ? 11 - x : x - 12 // 0 at the two center columns
+      const filled = out < reach
+      const head = s < FULL && out === reach - 1
+      const shine = out >= glint && out < glint + 2
+      c.pix(x, 2, head || shine ? 'spark' : filled ? top : empty)
+      c.pix(x, 3, head ? 'spark' : filled ? bottom : empty)
     }
   }
 }
@@ -155,12 +159,12 @@ function draw(c: Canvas, frame: number, seed: number) {
   solve(c, seed, k, s)
   if (frame < GLITCH) return
 
-  // Glitch out: each cell flickers to a red katakana for a frame, then goes black.
+  // Glitch out: each cell flickers to a red katakana on dark red for a frame, then goes black.
   for (let row = 0; row < 2; row++) {
     for (let col = 0; col < c.cols; col++) {
       const gone = GLITCH + Math.floor(noise(seed, 5, col, row) * 10)
       if (frame < gone - 1) continue
-      c.bg(col, row, 'base')
+      c.bg(col, row, frame < gone ? 'deep' : 'base')
       c.glyph(col, row, frame < gone ? KANA[Math.floor(noise(seed, 6, col, row) * KANA.length)]! : ' ', 'hot')
     }
   }

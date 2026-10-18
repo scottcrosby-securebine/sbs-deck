@@ -1964,7 +1964,9 @@ test('a resize from 80 to 79 columns keeps the reel and its frame', async ($, on
   mock.store(on)
   await sbsCommand($, 'anim breach')
   let ui = await spinnerOn($, 'thinking', 'terminal', { viewport: { columns: 80, rows: 40 } })
-  await clock.advance(1_000)
+  // Frame 50, mid upload bar: the cropped art changes on every frame from 47 to
+  // 60, so a drift of one frame either way draws different text.
+  await clock.advance(50 * 125)
   const wide = (await drawnLine(ui)).art.split('\n')
   expect(wide.map(row => [...row].length)).toEqual([32, 32])
   await ui.unmount()
