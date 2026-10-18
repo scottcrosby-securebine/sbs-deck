@@ -14,7 +14,8 @@ const template: Reel = {
   source: 'sbs-deck',
   // Where the picker may choose it: a context, or context:variant. Empty means
   // it plays only in the `other` pool and when pinned with /sbs anim <name>.
-  // Never `other`: every reel that is not rare is in that pool already.
+  // Never `other`: every reel except the rare one, the legacy reels and
+  // kodama is in that pool already.
   contexts: [],
   // true puts it in the rare pool instead (about 1 turn in 50).
   rare: false,
