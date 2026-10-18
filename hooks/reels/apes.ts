@@ -4,14 +4,14 @@ import { noise } from '../canvas'
 // Together strong (Planet of the Apes). One variant, march, 108 frames, played
 // for subagents and Agent calls.
 //
-// Two ape forearms reach in from the edges, a thin yellow stick between their
-// fists. The fists push, the stick bows, and APE ALONE WEAK: it snaps at the
-// middle in a red shock, splinters burst out in yellow and aqua rays, the
-// fists jerk apart and the halves swing down and drop away. A thick bundle of
-// four aqua and yellow sticks spreads from the middle out into the fists. They
-// push: it bows, wider each time. APES TOGETHER STRONG: it springs straight
-// and holds, red cords bind it from the middle out, the knuckles blaze, and a
-// red glint runs along it.
+// Two ape forearms reach in from the edges, a thin stick (yellow, aqua or
+// dark yellow) between their fists. The fists push, the stick bows, and APE
+// ALONE WEAK: it snaps open at its break in a red shock, splinters burst out
+// in yellow and aqua rays, the fists jerk apart and the halves swing down and
+// drop away. A thick bundle of four aqua and yellow sticks spreads from the
+// middle out into the fists. They push: it bows, wider each time. APES
+// TOGETHER STRONG: it springs straight and holds, red cords bind it from the
+// middle out, the knuckles blaze, and a red glint runs along it.
 //
 // A red sunset sky wipes in, a yellow sun on the horizon and redwoods at the
 // right edge. The troop marches in black silhouette, Caesar among them,
@@ -21,12 +21,15 @@ import { noise } from '../canvas'
 //
 // The statue in the sand, silent: the beach wipes in from the right at dusk,
 // stars over olive sand with the sea lapping at the left edge, and a ruined
-// aqua figure slides into view, tilted, buried to the shoulders, its crown of
-// spikes and raised torch against the dark red sky. The torch flickers.
+// aqua figure slides into view, toppled toward its torch, buried to the
+// shoulders, its crown of spikes and raised torch against the dark red sky.
+// The torch flickers.
 //
-// The seed picks the bundle's stick colors, the splinter rays, the troop (5 or
-// 6 apes, their gaps, which one is Caesar), the sun's column, the stars, and
-// which way the statue leans.
+// The seed picks each arm's fur tone, the stick's ink, its knots and where it
+// breaks (the shock plate moves with it), the splinter rays, the bundle's
+// stacking order, its dark knots and its outer cords, the troop (5 or 6 apes,
+// their gaps, which one is Caesar), the sun's column, the stars, and which way
+// the statue leans.
 
 const LOOP = 108
 const SNAP = 12 // APE ALONE WEAK: the stick breaks
@@ -48,29 +51,43 @@ const HUNCH = [
   ['......', '...XX.', '.XXXXX', 'XXXXXX', 'XXXX.X', 'X.X..X', 'X.X..X', '.X..X.'],
   ['......', '...XX.', '.XXXXX', 'XXXXXX', 'XXXX.X', '.XX.X.', '.XX.X.', 'X..X..'],
 ]
-// The statue in the sand, leaning left, 18 dots wide and 8 tall: the crown's
-// spikes, the head with an eye socket, the arm raised to the torch (F marks
-// the flame). The sand covers the shoulders.
+// The statue in the sand, toppled toward its torch, 18 dots wide and 8 tall:
+// the crown's spikes and the head with an eye socket sheared toward the lean,
+// the arm raised to the torch (F marks the flame). The sand covers the
+// shoulders.
 const STATUE = [
-  'X...X..X........FF',
-  '.X..X.X........FFF',
-  '..XXXXX..X.....XX.',
-  'XXXXXXXXX.....XX..',
-  '.XXX..XXX....XX...',
-  '..XXXXXX....XX....',
+  '..X...X..X......FF',
+  '...X..X.X......FFF',
+  '...XXXXX..X....XX.',
+  '.XXXXXXXXX....XX..',
+  '..XXX..XXX...XX...',
+  '...XXXXXX...XX....',
   '...XXXX...XXX.....',
   '...XXXXXXXXX......',
 ]
 
-// The bundle's four sticks, top to bottom, in aqua and yellow so they stand
-// out from the red fists; the seed picks a set.
-const DIM: Ink = { from: 'cool', to: 'base', t: 0.5 }
-const STICKS: readonly (readonly Ink[])[] = [
-  ['cool', 'spark', DIM, 'cool'],
-  ['spark', 'cool', DIM, 'spark'],
-  ['cool', DIM, 'spark', 'cool'],
-  [DIM, 'cool', 'spark', DIM],
-]
+// The bundle's four sticks in aqua and yellow tones, so they stand out from
+// the red fists; the seed stacks them in any of the 24 orders.
+const STICKS: readonly Ink[] = ['cool', 'spark', { from: 'cool', to: 'base', t: 0.5 }, { from: 'spark', to: 'base', t: 0.5 }]
+// The single stick's ink and each arm's fur tone, by seed.
+const STICK: readonly Ink[] = ['spark', 'cool', { from: 'spark', to: 'base', t: 0.25 }]
+const FUR = [0.25, 0.5, 0.75] as const
+// The outer cords' columns, by seed; the middle cord is always 15-16.
+const CORDS = [[11, 20], [10, 21], [12, 19]] as const
+
+// What the seed fixes for the first act.
+function act(seed: number) {
+  const order = [0, 1, 2, 3].sort((a, b) => noise(seed, 20, a) - noise(seed, 20, b))
+  return {
+    fur: [0, 1].map(side => FUR[Math.floor(noise(seed, 21, side) * 3)]!), // left arm, right arm
+    ink: STICK[Math.floor(noise(seed, 22) * 3)]!,
+    brk: 31.5 + Math.floor(noise(seed, 23) * 5) - 2, // the break, in dots
+    knots: [0, 1, 2].map(k => [18 + Math.floor(noise(seed, 24, k) * 28), 3 + Math.floor(noise(seed, 25, k) * 2)] as const),
+    sticks: order.map(i => STICKS[i]!),
+    bark: [0, 1, 2, 3].map(k => 9 + Math.floor(noise(seed, 26, k) * 14)), // a dark knot on each bundle stick
+    cords: CORDS[Math.floor(noise(seed, 27) * 3)]!,
+  }
+}
 
 // A canvas where a cell belongs to whichever of pixels and dots reaches it
 // first, so dots never land in a pixel cell: the later layer skips it.
@@ -112,69 +129,75 @@ const sprite = (c: Canvas, rows: readonly string[], x: number, ink: Ink) =>
   })
 
 // The forearms from both edges and the fists at columns 7-8 and 23-24, pushed
-// `out` columns outward. Fur in dark red, fists in red.
-function arms(c: Canvas, out: number, blaze: boolean) {
+// `out` columns outward. Fur in dark red, its top in a red tone the seed
+// picks for each arm, fists in red.
+function arms(c: Canvas, out: number, blaze: boolean, fur: readonly number[]) {
   for (const side of [-1, 1]) {
+    const tone = c.mix('hot', 'deep', fur[side < 0 ? 0 : 1]!)
     for (let k = 0; k < 9; k++) {
       const col = side < 0 ? k - out : 31 - k + out
       if (k >= 7) {
         // The fist: a knuckle ridge on top, fingers wrapped below.
         const knuckle: Ink = blaze ? 'spark' : 'hot'
-        c.pix(col, 0, k === 8 ? knuckle : c.mix('hot', 'deep', 0.5))
+        c.pix(col, 0, k === 8 ? knuckle : tone)
         c.pix(col, 1, 'hot')
         c.pix(col, 2, 'hot')
-        c.pix(col, 3, c.mix('hot', 'deep', 0.5))
+        c.pix(col, 3, tone)
       } else {
-        c.pix(col, 1, c.mix('hot', 'deep', 0.5))
+        c.pix(col, 1, tone)
         c.pix(col, 2, 'deep')
       }
     }
   }
 }
 
-// One stick, frames 0 to DROP: it bows, snaps, swings down and falls.
+// One stick, frames 0 to DROP - 1: it bows, snaps at its seeded break,
+// swings down and falls. Knots are dots missing from it.
 function stick(c: Canvas, f: number, seed: number) {
+  const { ink, brk, knots } = act(seed)
+  const knot = (x: number, y: number) => knots.some(([kx, ky]) => kx === x && ky === y)
+  const mid = Math.round(brk / 2) // the shock plate's columns: mid - 2 to mid + 1
   if (f >= SNAP) {
     // The shock behind the break.
     const s = f - SNAP
     const shock: Ink | null = s === 0 ? 'hot' : s === 1 ? c.mix('hot', 'deep', 0.5) : s === 2 ? 'deep' : s === 3 ? c.mix('deep', 'base', 0.5) : null
-    if (shock) for (let col = 14; col <= 17; col++) for (const row of [0, 1]) c.bg(col, row, shock)
+    if (shock) for (let col = mid - 2; col <= mid + 1; col++) for (const row of [0, 1]) c.bg(col, row, shock)
   }
   if (f < SNAP) {
     const bow = f < 4 ? 0 : ((f - 3) / 8) * 1.6
     for (let x = 18; x <= 45; x++) {
       const lift = Math.round(bow * Math.sin((Math.PI * (x - 17)) / 29))
-      const strain = f >= SNAP - 3 && Math.abs(x - 31.5) < 3
-      for (const y of [3, 4]) c.put(x, y - lift, strain ? 'hot' : 'spark', 3)
+      const strain = f >= SNAP - 3 && Math.abs(x - brk) < 3
+      for (const y of [3, 4]) if (!knot(x, y)) c.put(x, y - lift, strain ? 'hot' : ink, 3)
     }
     return
   }
-  // The halves pivot at the fists, then drop.
+  // The halves pivot at the fists with a gap at the break, then drop.
   const s = f - SNAP
   const sag = Math.min(4, 0.5 + s * 0.8)
-  const fall = Math.max(0, f - 17)
-  for (let i = 0; i < 14; i++) {
-    const dy = (sag * (i + 1)) / 14 + (fall * (fall + 1)) / 2
-    for (const y of [3, 4]) {
-      c.put(18 + i, y + dy, 'spark', 3)
-      c.put(45 - i, y + dy, 'spark', 3)
-    }
+  const fall = Math.max(0, f - 18)
+  const [end, start] = [Math.floor(brk) - 1, Math.ceil(brk) + 1] // the last left dot, the first right dot
+  for (let x = 18; x <= 45; x++) {
+    if (x > end && x < start) continue
+    const along = x <= end ? (x - 17) / (end - 17) : (46 - x) / (46 - start)
+    const dy = sag * along + (fall * (fall + 1)) / 2
+    for (const y of [3, 4]) if (!knot(x, y)) c.put(x, y + dy, ink, 3)
   }
   // Splinters burst from the break as rays that grow out and then let go
   // from the inside, so each cell lights once and goes dark once.
   if (s < 6) {
-    for (let k = 0; k < 8; k++) {
-      const a = ((k + 0.25 + noise(seed, 1, k) * 0.5) / 8) * 2 * Math.PI
+    for (let k = 0; k < 6; k++) {
+      const a = ((k + 0.25 + noise(seed, 1, k) * 0.5) / 6) * 2 * Math.PI
       const v = 2.5 + noise(seed, 2, k)
-      const ink: Ink = noise(seed, 3, k) < 0.6 ? 'spark' : 'cool'
-      for (let r = Math.max(1, (s - 1.5) * v); r <= (s + 1) * v; r += 0.5) c.put(31.5 + Math.cos(a) * r * 1.6, 3.5 + Math.sin(a) * r * 0.6, ink, 5)
+      const ray: Ink = noise(seed, 3, k) < 0.6 ? 'spark' : 'cool'
+      for (let r = Math.max(2, (s - 1.5) * v); r <= (s + 1) * v; r += 0.5) c.put(brk + Math.cos(a) * r * 1.6, 3.5 + Math.sin(a) * r * 0.6, ray, 5)
     }
   }
 }
 
 // The bundle, frames DROP to SKY: four pixel sticks between the fists.
 function bundle(c: Canvas, f: number, seed: number) {
-  const colors = STICKS[Math.floor(noise(seed, 4) * STICKS.length)]!
+  const { sticks, bark, cords } = act(seed)
   const reach = 2 * (f - DROP + 1) // it spreads out from the middle to the fists
   // The bow before it holds: wider each push, the middle up a pixel.
   const bowed = (col: number) => {
@@ -183,7 +206,7 @@ function bundle(c: Canvas, f: number, seed: number) {
     return f % 4 < 2 && Math.abs(col - 15.5) < w
   }
   // The red cords bind it from the middle out; then a glint runs along it.
-  const tied = (col: number) => [11, 15, 16, 20].includes(col) && f >= HOLD + (Math.abs(col - 15.5) < 1 ? 0 : 1)
+  const tied = (col: number) => (col === 15 || col === 16) ? f >= HOLD : (cords as readonly number[]).includes(col) && f >= HOLD + 1
   const glint = f >= HOLD + 3 ? 9 + (f - HOLD - 3) * 2 : -9
   for (let col = 9; col <= 22; col++) {
     if (Math.abs(col - 15.5) > reach) continue
@@ -191,7 +214,7 @@ function bundle(c: Canvas, f: number, seed: number) {
       const y = 3 - k - (bowed(col) ? 1 : 0)
       if (y < 0) continue
       const shine = col === glint || col === glint + 1
-      c.pix(col, y, tied(col) || shine ? 'hot' : colors[k]!)
+      c.pix(col, y, tied(col) || shine ? 'hot' : col === bark[k] ? 'deep' : sticks[k]!)
     }
   }
 }
@@ -221,8 +244,8 @@ function march(c: Canvas, f: number, seed: number) {
   for (let col = 0; col < 32; col++) {
     const d = col < sun ? sun - 1 - col : col - sun // 0 at the two center columns
     const trees = col >= 28
-    const row0: Ink = trees ? (col === 29 ? 'deep' : 'base') : d <= 1 + widen ? 'spark' : d <= 4 + widen ? 'hot' : d <= 8 + widen ? c.mix('hot', 'deep', 0.5) : 'deep'
-    const row1: Ink = trees ? (col === 29 ? 'deep' : 'base') : d <= 1 + widen ? 'spark' : d <= 6 + widen ? 'hot' : c.mix('hot', 'deep', 0.5)
+    const row0: Ink = trees ? (col === 29 ? 'deep' : 'base') : d <= 1 + widen ? 'spark' : d <= 10 + widen ? 'hot' : c.mix('hot', 'deep', 0.5)
+    const row1: Ink = trees ? (col === 29 ? 'deep' : 'base') : d <= 1 + widen ? 'spark' : 'hot'
     c.bg(col, 0, row0)
     c.bg(col, 1, row1)
   }
@@ -261,8 +284,8 @@ function beach(c: Canvas, f: number, seed: number) {
 function draw(canvas: Canvas, f: number, seed: number) {
   const c = claiming(canvas)
   if (f < SKY) {
-    arms(c, f < 3 ? (3 - f) * 2 : f === SNAP + 1 || f === SNAP + 2 ? 1 : 0, f >= HOLD && f < HOLD + 8)
-    if (f < DROP + 2) stick(c, f, seed)
+    arms(c, f < 3 ? (3 - f) * 2 : f === SNAP + 1 || f === SNAP + 2 ? 1 : 0, f >= HOLD && f < HOLD + 8, act(seed).fur)
+    if (f < DROP) stick(c, f, seed)
     if (f >= DROP) bundle(c, f, seed)
     return
   }
@@ -275,7 +298,7 @@ function draw(canvas: Canvas, f: number, seed: number) {
     march(clipped(c, col => col < front && col < beachFront), f, seed)
     if (front < 32) {
       const old = clipped(c, col => col >= front)
-      arms(old, 0, false)
+      arms(old, 0, false, act(seed).fur)
       bundle(old, f, seed)
     }
     return
@@ -299,5 +322,5 @@ export default {
       ],
     },
   },
-  draw: (c, frame, seed) => draw(c, frame, seed),
+  draw,
 } satisfies Reel
