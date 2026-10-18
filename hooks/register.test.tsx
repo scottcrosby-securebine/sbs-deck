@@ -304,6 +304,8 @@ test('every spinner phrase fits the line and appears once', () => {
 })
 
 test('a prompt typed mid-turn is slate blue while it waits and gold once it is read', async ($, on) => {
+  // An idle prompt.submit reads the clock.
+  mock.clock(on)
   on('prompt.submit', ($, e) => ({ text: e.text }))
   on('prompt.attachment', ($, e) => ({ text: e.text }))
   on('ui.render', { component: 'UserMessage' }, ($, e) => {
@@ -593,6 +595,8 @@ test('a spinner back on screen mid-turn is redrawn by a restarted timer', async 
 })
 
 test('the label names the account signed in to Claude Code and follows a new sign-in', async ($, on) => {
+  // An idle prompt.submit reads the clock.
+  mock.clock(on)
   mock.store(on)
   mock.env(on, { HOME: '/home/tester', USER: 'tester' })
   let signedIn = 'pat.doe@example.io'
@@ -902,6 +906,8 @@ test('a queued prompt that quotes the engine framing is read whole, and only whe
 })
 
 test('with no home directory nothing is read from the working directory', async ($, on) => {
+  // An idle prompt.submit reads the clock.
+  mock.clock(on)
   mock.store(on)
   mock.env(on, { USER: 'tester' })
   const paths: string[] = []
@@ -934,6 +940,8 @@ test('with no home directory nothing is read from the working directory', async 
 })
 
 test('an empty CLAUDE_CONFIG_DIR reads the account from HOME, as Claude Code does', async ($, on) => {
+  // An idle prompt.submit reads the clock.
+  mock.clock(on)
   mock.store(on)
   mock.env(on, { CLAUDE_CONFIG_DIR: '', HOME: '/home/tester', USER: 'tester' })
   const paths: string[] = []
@@ -949,6 +957,8 @@ test('an empty CLAUDE_CONFIG_DIR reads the account from HOME, as Claude Code doe
 })
 
 test('a control character in the account email does not cost the prompt box its styling', async ($, on) => {
+  // An idle prompt.submit reads the clock.
+  mock.clock(on)
   mock.store(on)
   mock.env(on, { HOME: '/home/tester', USER: 'tester' })
   on('fs.read', () => ({ value: JSON.stringify({ oauthAccount: { emailAddress: 'pat\u001b[31m@example.io' } }) }))
@@ -2697,4 +2707,37 @@ test('a tool that starts and ends between draws restarts the long-wait clock', a
     await clock.advance(30_000)
   })
   expect(poolFor('thinking').map(entry => entry.reel)).toContain(reel)
+})
+
+test('a typed prompt\'s working line starts fresh while its submit hooks run and keeps its reel at turn.start', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  scriptedModel(on, () => ({ text: '', tokens: 496 }))
+  const seen: { readout: string; reel: string | undefined }[] = []
+  // The engine draws the working line from Enter, through the UserPromptSubmit
+  // hooks, and starts the turn after them, inside this chain.
+  on('prompt.submit', async (_, e) => {
+    const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+    await clock.advance(500)
+    seen.push({ readout: (await drawnLine(ui)).readout, reel: await reelKey(ui) })
+    await $.turn.start({ text: e.text, turnId: 't2' })
+    await clock.advance(125)
+    seen.push({ readout: (await drawnLine(ui)).readout, reel: await reelKey(ui) })
+    await ui.unmount()
+
+    return { text: e.text }
+  })
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await drain($.turn.step({ turnId: 't1', index: 0, model: 'test', effort: 'high', messageCount: 1 }))
+  const last = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+  await clock.advance(35_000)
+  expect((await drawnLine(last)).readout).toBe('35s · 496 tokens · effort high')
+  await last.unmount()
+
+  await $.prompt.submit({ text: 'Reply with only the word ok.', wait: false, origin: { kind: 'composer' } })
+  expect(seen.map(frame => frame.readout)).toEqual(['-- · -- tokens', '0s · 0 tokens'])
+  expect(seen[0]!.reel).toBeDefined()
+  expect(seen[1]!.reel).toBe(seen[0]!.reel)
 })

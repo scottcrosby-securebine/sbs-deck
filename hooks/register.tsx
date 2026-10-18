@@ -399,9 +399,32 @@ export const register: Register = on => {
   // whether the main spinner's next first pick rolls for a rare reel.
   const bags: Bags = new Map()
   let pendingRareRoll = false
+  // Whether a prompt submitted while idle has opened the main turn's working
+  // line and its turn.start has yet to come.
+  let isLineOpened = false
   // A tool starting or ending restarts the long-wait clocks, even between two
   // draws. A subagent's spinner is always in agents, so its clock never counts.
   const toolChanged = () => steady.clear()
+  // A main turn opens its working line: the main spinner picks afresh, its
+  // first pick rolling for a rare reel; a subagent's keeps its own. Any
+  // instance not drawn for a while is dropped.
+  const openMainLine = (now: number, stats: Record<string, TurnStats>) => {
+    pendingRareRoll = true
+    runningTools.length = 0
+    inputTool = undefined
+    streaming.delete('main')
+
+    for (const instance of new Set([...plays.keys(), ...lastDrawn.keys(), ...steady.keys(), ...phrasesShown.keys()])) {
+      const requestId = instance.slice(instance.indexOf(':') + 1)
+
+      if (loopKeyOf(requestId, stats) === 'main' || now - (lastDrawn.get(instance) ?? now) >= INSTANCE_TTL_MS) {
+        plays.delete(instance)
+        lastDrawn.delete(instance)
+        steady.delete(instance)
+        phrasesShown.delete(instance)
+      }
+    }
+  }
   // Who is shown beside OPERATOR: the account signed in to Claude Code, by its
   // email, read again at every turn so a new sign-in shows at once. The
   // machine's login name stands in where no account can be read.
@@ -616,6 +639,19 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    // The engine draws the working line from Enter, through the UserPromptSubmit
+    // hooks, and starts the turn after them, inside next(e). A prompt submitted
+    // while idle opens the line here, so its first pick is the turn's and no
+    // turn.start replaces it; the readout shows `--` until turn.start, which
+    // elapsed counts from.
+    const opens = e.turnId === undefined
+
+    if (opens) {
+      const stats = await update($, turnStats, ({ main: _last, ...rest }) => rest)
+      openMainLine(await $.clock.now(), stats)
+      isLineOpened = true
+    }
+
     const current = await signedInAccount($)
 
     if (current !== account) {
@@ -631,7 +667,13 @@ export const register: Register = on => {
       $.ui.invalidate('ui.render')
     }
 
-    return next(e)
+    try {
+      return await next(e)
+    } finally {
+      if (opens) {
+        isLineOpened = false
+      }
+    }
   })
 
   // A waiting prompt is read when the engine injects it into the running turn
@@ -668,22 +710,10 @@ export const register: Register = on => {
       return next(e)
     }
 
-    // The main spinner picks afresh, its first pick rolling for a rare reel; a
-    // subagent's keeps its own. Any instance not drawn for a while is dropped.
-    pendingRareRoll = true
-    runningTools.length = 0
-    inputTool = undefined
-    streaming.delete('main')
-
-    for (const instance of new Set([...plays.keys(), ...lastDrawn.keys(), ...steady.keys(), ...phrasesShown.keys()])) {
-      const requestId = instance.slice(instance.indexOf(':') + 1)
-
-      if (loopKeyOf(requestId, stats) === 'main' || now - (lastDrawn.get(instance) ?? now) >= INSTANCE_TTL_MS) {
-        plays.delete(instance)
-        lastDrawn.delete(instance)
-        steady.delete(instance)
-        phrasesShown.delete(instance)
-      }
+    // A turn no idle prompt opened (a continuation, a queued prompt) opens its
+    // line here.
+    if (!isLineOpened) {
+      openMainLine(now, stats)
     }
 
     for (const prompt of deliveredAmong(waitingPrompts, e.text)) {
