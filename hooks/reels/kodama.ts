@@ -268,14 +268,20 @@ function draw(canvas: Canvas, f: number, seed: number) {
   const cx = demonAt(seed, f)
   const dir = -sideOf(seed)
 
-  // The forest floor and trunks, then what the demon does to them.
+  // The forest floor and trunks, then what the demon does to them. Moss grows
+  // only on bare floor: on the blight a moss half-block in a cell that a worm
+  // or lash dot crosses would swap with a braille cell a step brighter, so the
+  // blight carries no moss and a dot crossing it never flashes, for any seed.
+  const mossy: boolean[] = []
   for (let col = 0; col < 32; col++) {
+    mossy[col] = !TRUNKS.has(col)
     for (const row of [0, 1]) {
       let ink: Ink | null = TRUNKS.has(col) ? c.mix('deep', 'base', 0.25) : row === 1 ? c.mix('deep', 'base', 0.5) : null
       // The blight: a red run along the floor from the halted demon to both edges.
       if (row === 1 && f >= CURSE) {
         const stop = stopOf(seed)
         const a = f - CURSE - Math.max(0, Math.abs(col - stop) - 5) / 2
+        if (a >= 0 && a < 15) mossy[col] = false
         if (a >= 0) ink = a < 6 ? 'hot' : a < 9 ? c.mix('hot', 'deep', 0.5) : a < 12 ? 'deep' : a < 15 ? c.mix('deep', 'base', 0.25) : ink
       }
       if (cx !== null && inBody(cx, col, row, dir)) ink = row === 1 ? 'base' : c.mix('deep', 'base', 0.5)
@@ -290,8 +296,8 @@ function draw(canvas: Canvas, f: number, seed: number) {
   if (f >= PEEK) peek(c, f, seed)
   blooms(c, f, seed)
   spirit(c, f)
-  // Moss along the floor.
-  for (let col = 0; col < 32; col++) if (!TRUNKS.has(col)) c.pix(col, 3, c.mix('cool', 'base', 0.75))
+  // Moss along the bare floor.
+  for (let col = 0; col < 32; col++) if (mossy[col]) c.pix(col, 3, c.mix('cool', 'base', 0.75))
 }
 
 export default {
