@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { endStep, formatElapsed, newTurn, readoutText, withEffort } from './readout'
+import { endStep, formatElapsed, modeTag, newTurn, readoutText, withEffort } from './readout'
 
 test('the readout formats elapsed, tokens and effort', () => {
   const stats = withEffort({ ...newTurn(0), doneTokens: 4180 }, 'high')
@@ -25,4 +25,15 @@ test('a step without usage keeps its estimate and its ~ until the turn ends', ()
 
 test('real usage replaces the estimate at once, lower or higher', () => {
   expect(readoutText(endStep(newTurn(0), 20, 4000), 0, 0)).toBe('0s · 20 tokens')
+})
+
+test('the tag names what Claude is doing, and the running tool by name', () => {
+  expect(modeTag('thinking', undefined)).toBe('THINK')
+  expect(modeTag('tool-input', 'Bash')).toBe('PREP')
+  expect(modeTag('responding', undefined)).toBe('REPLY')
+  expect(modeTag('requesting', undefined)).toBe('SEND')
+  expect(modeTag('tool-use', 'Bash')).toBe('BASH')
+  expect(modeTag('tool-use', 'WebFetch')).toBe('WEBFETCH')
+  expect(modeTag('tool-use', 'mcp__net__show')).toBe('MCP')
+  expect(modeTag('tool-use', undefined)).toBe('TOOL')
 })

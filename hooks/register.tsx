@@ -7,7 +7,7 @@ import { cleanLine, colorLine } from './color'
 import { LEGACY_REELS, NEW_REELS, offReels, reelNamed, unindexedLines, unlistedFields } from './library'
 import { contextOf, drawFromBag, holdEnd, nextVariant, poolOf, rollsRare } from './picker'
 import type { Bags, Context } from './picker'
-import { endStep, newTurn, readoutText, withEffort } from './readout'
+import { endStep, modeTag, newTurn, readoutText, withEffort } from './readout'
 import type { TurnStats } from './readout'
 import { AUTO, decrypt, phraseFor } from './spinner'
 import type { PhraseSource, SpinnerMode } from './spinner'
@@ -1197,7 +1197,7 @@ export const register: Register = (on, options) => {
       art,
       words: rowOne.text,
       isCatchphrase: rowOne.isCatchphrase,
-      readout: readoutText(stats[loop], now, streaming.get(loop) ?? 0),
+      readout: `${modeTag(e.props.mode, tool)} · ${readoutText(stats[loop], now, streaming.get(loop) ?? 0)}`,
     })
 
     const { Box, Text } = $.ui.resolve(e)

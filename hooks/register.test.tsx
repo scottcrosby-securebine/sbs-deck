@@ -1601,7 +1601,7 @@ test('the working line draws two rows of art beside the phrase and the readout',
   expect([...((await ui.find({ key: 'art1' }))?.text ?? '')]).toHaveLength(32)
   const { words, readout } = await drawnLine(ui)
   expect(SPINNER_PHRASES.thinking).toContain(words)
-  expect(readout).toStartWith('2s · ')
+  expect(readout).toStartWith('THINK · 2s · ')
   await ui.unmount()
 })
 
@@ -2702,11 +2702,11 @@ test('a typed prompt\'s working line starts fresh while its submit hooks run and
   await drain($.turn.step({ turnId: 't1', index: 0, model: 'test', effort: 'high', messageCount: 1 }))
   const last = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
   await clock.advance(35_000)
-  expect((await drawnLine(last)).readout).toBe('35s · 496 tokens · effort high')
+  expect((await drawnLine(last)).readout).toBe('THINK · 35s · 496 tokens · effort high')
   await last.unmount()
 
   await $.prompt.submit({ text: 'Reply with only the word ok.', wait: false, origin: { kind: 'composer' } })
-  expect(seen.map(frame => frame.readout)).toEqual(['-- · -- tokens', '0s · 0 tokens'])
+  expect(seen.map(frame => frame.readout)).toEqual(['THINK · -- · -- tokens', 'THINK · 0s · 0 tokens'])
   expect(seen[0]!.reel).toBeDefined()
   expect(seen[1]!.reel).toBe(seen[0]!.reel)
 })
@@ -2828,4 +2828,32 @@ test('/sbs anim list marks reels switched off, and /sbs status names them and th
 test('/sbs status names no reel off while every one is on', async ($, on) => {
   mock.store(on)
   expect(JSON.stringify(await sbsCommand($, 'status'))).not.toContain('Reels off')
+})
+
+test('the readout leads with what Claude is doing: the mode, or the running tool by name', async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+  const held = heldCalls($, on)
+  const readoutOf = async (mode: SpinnerMode, viewport: { columns: number; rows: number } | undefined = WIDE) => {
+    const ui = await spinnerOn($, mode, 'terminal', { viewport })
+    const { readout } = await drawnLine(ui)
+    await ui.unmount()
+
+    return readout
+  }
+
+  expect(await readoutOf('thinking')).toStartWith('THINK · ')
+  expect(await readoutOf('responding')).toStartWith('REPLY · ')
+  expect(await readoutOf('thinking', undefined)).toStartWith('THINK · ')
+
+  const bash = await held(BASH)
+  expect(await readoutOf('tool-use')).toStartWith('BASH · ')
+  expect(await readoutOf('tool-input')).toStartWith('PREP · ')
+  bash.release()
+  await bash.settled
+
+  const mcp = await held({ tool: 'mcp__net__show' } as unknown as ToolCallArgs)
+  expect(await readoutOf('tool-use')).toStartWith('MCP · ')
+  mcp.release()
+  await mcp.settled
 })

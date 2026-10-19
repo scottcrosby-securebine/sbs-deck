@@ -1,3 +1,5 @@
+import type { SpinnerMode } from './spinner'
+
 export type TurnStats = { startedAt: number; doneTokens: number; stickyChars: number; effort: string | number | undefined }
 
 export const newTurn = (now: number): TurnStats => ({ startedAt: now, doneTokens: 0, stickyChars: 0, effort: undefined })
@@ -32,4 +34,19 @@ export function readoutText(stats: TurnStats | undefined, now: number, streaming
   ]
   if (stats.effort !== undefined) parts.push(`effort ${stats.effort}`)
   return parts.join(' · ')
+}
+
+const MODE_TAGS: Readonly<Record<SpinnerMode, string>> = {
+  thinking: 'THINK',
+  'tool-input': 'PREP',
+  responding: 'REPLY',
+  requesting: 'SEND',
+  'tool-use': 'TOOL',
+}
+
+// What Claude is doing, so a phrase flip has a visible reason: the mode, or in
+// tool-use the running tool by name (an MCP tool as MCP).
+export function modeTag(mode: SpinnerMode, tool: string | undefined): string {
+  if (mode !== 'tool-use' || tool === undefined) return MODE_TAGS[mode]
+  return tool.startsWith('mcp__') ? 'MCP' : tool.toUpperCase()
 }

@@ -14,7 +14,7 @@ what Claude does or what Claude reads.
 | Quiet tool rows | Each tool call is one line saying what it is for: `▸` running, `✓` finished, `✗` failed. Output is hidden unless the call failed |
 | Colored output | With quiet rows off, shell and MCP output is colored by pattern: up/down states, IP and MAC addresses, interface names, numbers with units, paths, JSON |
 | Working line | While Claude works, the mod draws a two-row line: a 32 by 2 cell full-color animation (a reel) beside a science-fiction phrase for what it is doing and a readout. A new phrase each time the state changes. In a narrow or short terminal it is one row: the phrase and the readout |
-| Readout | Time, tokens and effort for the turn: `12s · ~4.2k tokens · effort high`. The `~` shows while a step is still streaming and the count is an estimate |
+| Readout | What Claude is doing, then time, tokens and effort for the turn: `THINK · 12s · ~4.2k tokens · effort high`. The tag is `THINK`, `PREP` (writing a tool call), `REPLY`, `SEND` (waiting on the API), or the running tool's name (`BASH`, `READ`, `MCP` for an MCP tool, `TOOL` when none is known), so a phrase change has a visible reason. The `~` shows while a step is still streaming and the count is an estimate |
 | Reels | Twelve reels, each its own scene, picked by what Claude is doing (shell, editing, web, subagents and so on) and shuffled per context, so none repeats until that context's pool has played. About 1 turn in 50 plays a rare one. [`docs/reels.md`](docs/reels.md) lists how they are picked and how to add your own |
 | Themes | SecureBine gold is the default. `/sbs theme nightcity` switches to the Night City palette, and adds its own phrases while Breach Protocol or Sandevistan plays |
 
@@ -161,7 +161,7 @@ in October 2026 by independent reviewers, one of them a different model
 family. Every blocking finding was fixed, each code fix with a test that
 fails without it, or, by the owner's ruling, is listed under Known limits.
 The Night City theme, the two-row working line with its readout and the
-twelve reels are not yet reviewed. The test suite passes, 249 tests, on Claude
+twelve reels are not yet reviewed. The test suite passes, 251 tests, on Claude
 Code 2.1.302.
 The live checks this host can run passed in tmux in October 2026: both themes at
 80, 60 and 40 columns, 256 colors, a subagent turn and a reload, `/sbs anim off`,
