@@ -1231,6 +1231,6 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'TurnDuration' }, ($, e, next) =>
-    isEnabled ? next({ ...e, props: { ...e.props, word: 'Jacked out' } }) : next(e),
+    isEnabled ? next({ ...e, props: { ...e.props, word: 'Wired in' } }) : next(e),
   )
 }

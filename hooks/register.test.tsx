@@ -2857,3 +2857,15 @@ test('the readout leads with what Claude is doing: the mode, or the running tool
   mcp.release()
   await mcp.settled
 })
+
+test('the turn\'s end line says Wired in, in place of the sampled word', async ($, on) => {
+  on('ui.render', { component: 'TurnDuration' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{`${e.props.word} for 3s`}</Text>
+  })
+
+  const line = await $.ui.mount({ plugin: 'sbs-deck', surface: 'terminal', component: 'TurnDuration', props: { word: 'Baked', durationMs: 3_000 } })
+  expect(await line.find({ type: 'Text', text: 'Wired in for 3s' })).toBeDefined()
+  await line.unmount()
+})

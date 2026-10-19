@@ -161,7 +161,7 @@ in October 2026 by independent reviewers, one of them a different model
 family. Every blocking finding was fixed, each code fix with a test that
 fails without it, or, by the owner's ruling, is listed under Known limits.
 The Night City theme, the two-row working line with its readout and the
-twelve reels are not yet reviewed. The test suite passes, 251 tests, on Claude
+twelve reels are not yet reviewed. The test suite passes, 252 tests, on Claude
 Code 2.1.302.
 The live checks this host can run passed in tmux in October 2026: both themes at
 80, 60 and 40 columns, 256 colors, a subagent turn and a reload, `/sbs anim off`,
