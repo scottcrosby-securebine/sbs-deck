@@ -157,7 +157,9 @@ function draw(c: Canvas, f: number, seed: number) {
       const s = px.wx - cam(f, p.lurch)
       if (s < 0 || s >= 32) return
       const head = i === laid.length - 1, cycle = i >= laid.length - 2
-      let ink: Ink | null = isRed ? (cycle && head ? 'spark' : 'hot')
+      // Red's wall dims like aqua's while they race; from the crash it burns full
+      // red, so the dim wall under the crash flash never adds a counted change.
+      let ink: Ink | null = isRed ? (cycle || f >= CRASH ? 'hot' : c.mix('hot', 'deep', 0.5))
         : cycle ? (head && f === DODGE ? 'spark' : 'cool') : c.mix('cool', 'base', 0.5)
       let glow = true
       if (isRed && f >= CRASH) {
