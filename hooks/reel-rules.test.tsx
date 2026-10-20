@@ -103,6 +103,13 @@ test('two beats on a 71-frame loop are a beats finding', () => {
   expect(rules(loop({ loop: 71, beats: beats(4, 40) }))).toEqual(['beats'])
 })
 
+test('a beat held up to the next beat passes, and one held past it is a beats finding', () => {
+  expect(rules(loop({ loop: 72, beats: [{ at: 4, phrase: 'HELD', hold: 36 }, { at: 40, phrase: 'NEXT' }] }))).toEqual([])
+  expect(rules(loop({ loop: 72, beats: [{ at: 4, phrase: 'HELD', hold: 37 }, { at: 40, phrase: 'NEXT' }] }))).toEqual(['beats'])
+  expect(rules(loop({ loop: 72, beats: [{ at: 4, phrase: 'A' }, { at: 40, phrase: 'HELD', hold: 33 }] }))).toEqual(['beats'])
+  expect(rules(loop({ loop: 72, beats: [{ at: 4, phrase: 'HELD', hold: 0 }, { at: 40, phrase: 'NEXT' }] }))).toEqual(['beats'])
+})
+
 test('a variant with no beats is a beats finding', () => {
   expect(rules(loop({ loop: 72, beats: [] }))).toEqual(['beats'])
 })

@@ -102,6 +102,12 @@ function beatProblems(v: Variant): string[] {
   }
   if (at[at.length - 1]! > v.loop - 12) out.push(`last beat at ${at[at.length - 1]}, after frame ${v.loop - 12} (loop ${v.loop} less 12)`)
   if (v.loop < 36 * at.length) out.push(`loop ${v.loop} is under 36 x ${at.length} beats`)
+  v.beats.forEach((b, i) => {
+    if (b.hold === undefined) return
+    const end = i + 1 < v.beats.length ? v.beats[i + 1]!.at : v.loop
+    if (!Number.isInteger(b.hold) || b.hold < 1) out.push(`beat at ${b.at} holds ${b.hold} frames, not a positive integer`)
+    else if (b.at + b.hold > end) out.push(`beat at ${b.at} holds ${b.hold} frames, past frame ${end}`)
+  })
   return out
 }
 

@@ -39,7 +39,7 @@ const IDLE_TICKS = 48
 const MAX_AGENTS = 50
 // A spinner instance not drawn for this long is dropped at the next main turn.
 const INSTANCE_TTL_MS = 10 * 60_000
-// How many frames a beat's catchphrase stands on row 1.
+// How many frames a beat's catchphrase stands on row 1, unless the beat holds it longer.
 const BEAT_FRAMES = 12
 // The reels whose play shows the Night City phrase pool in that theme.
 const NIGHT_CITY_REELS = ['breach', 'sandevistan']
@@ -1164,7 +1164,7 @@ export const register: Register = (on, options) => {
       }
 
       const reel = reelNamed(play.reel) ?? LEGACY_REELS[0]!
-      catchphrase = reel.variants[play.variant]?.beats.find(beat => frame >= beat.at && frame < beat.at + BEAT_FRAMES)?.phrase
+      catchphrase = reel.variants[play.variant]?.beats.find(beat => frame >= beat.at && frame < beat.at + (beat.hold ?? BEAT_FRAMES))?.phrase
       art = artRuns(drawFrame(reel, play.variant, frame, play.seed, tier === 'full' ? 32 : 16), theme)
     }
 

@@ -2869,3 +2869,23 @@ test('the turn\'s end line says Wired in, in place of the sampled word', async (
   expect(await line.find({ type: 'Text', text: 'Wired in for 3s' })).toBeDefined()
   await line.unmount()
 })
+
+test('a held beat keeps its catchphrase until the next beat: HE IS ALREADY DEAD for 36 frames', { timeoutMs: 30_000 }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  await sbsCommand($, 'anim hokuto')
+  const variants = reelNamed('hokuto')!.variants
+  const [held, nani] = variants['seven-stars']!.beats.filter(b => b.phrase === 'HE IS ALREADY DEAD' || b.phrase === 'NANI?!')
+  const ui = await spinnerOn($, 'thinking', 'terminal', { viewport: WIDE })
+
+  // The pin plays flurry first, then seven-stars from its own frame 0.
+  await clock.advance(variants.flurry!.loop * 125)
+  await drawnLine(ui)
+  await clock.advance(held!.at * 125)
+  expect((await drawnLine(ui)).words).toBe('HE IS ALREADY DEAD')
+  await clock.advance((nani!.at - held!.at - 1) * 125)
+  expect((await drawnLine(ui)).words).toBe('HE IS ALREADY DEAD')
+  await clock.advance(125)
+  expect((await drawnLine(ui)).words).toBe('NANI?!')
+  await ui.unmount()
+})

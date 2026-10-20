@@ -1,7 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import { CONTEXTS } from './picker'
-import { checkLibrary, checkReel } from './reel-rules'
+import { cellLuminance, checkLibrary, checkReel } from './reel-rules'
+import { drawFrame } from './canvas'
 import { ANIMATIONS } from './spinner'
 import template from './reels/_template'
 import { ALL_REELS, INDEXED_KEYS, LEGACY_REELS, NEW_REELS, offReels, reelField, unlistedFields, unindexedLines } from './library'
@@ -100,4 +101,15 @@ test('every context in a reel\'s contexts is a known context with a known varian
       if (variant !== undefined) expect(Object.keys(reel.variants), `${reel.name}: ${context}`).toContain(variant)
     }
   }
+})
+
+test('at HE IS ALREADY DEAD the world stops and the thug\'s heart beats slower', () => {
+  const hokuto = NEW_REELS.find(r => r.name === 'hokuto')!
+  const lum = (f: number, col: number, row: number) => cellLuminance(drawFrame(hokuto, 'seven-stars', f, 1, 32)[row]![col]!, 'nightcity')
+  const held = hokuto.variants['seven-stars']!.beats.find(b => b.phrase === 'HE IS ALREADY DEAD')!.at
+  // The blood red sky goes dark for the held moment.
+  expect(lum(held + 6, 2, 0)).toBeLessThan(lum(held - 4, 2, 0))
+  // Lub-dub, then a rest that grows: the thug's shoulders light on these frames only.
+  const lit = Array.from({ length: 36 }, (_, k) => lum(held + k, 25, 0) > lum(held + 4, 25, 0))
+  expect(lit.flatMap((on, k) => on ? [k] : [])).toEqual([0, 2, 8, 10, 17, 19, 27, 29])
 })

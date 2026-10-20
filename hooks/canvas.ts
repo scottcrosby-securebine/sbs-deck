@@ -3,7 +3,8 @@ import type { Paint, Slot, ThemeName } from './theme'
 
 export type Ink = Slot | { from: Slot; to: Slot; t: number }
 export type Cell = { char: string; fg: Ink | null; bg: Ink | null }
-export type Beat = { at: number; phrase: string }
+// `hold`: frames the catchphrase stands, 12 when absent; it ends by the next beat.
+export type Beat = { at: number; phrase: string; hold?: number }
 export type Variant = { loop: number; beats: readonly Beat[] }
 
 export type Canvas = {

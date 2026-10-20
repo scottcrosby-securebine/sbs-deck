@@ -16,8 +16,10 @@ import { noise } from '../canvas'
 // seven-stars: under a blood red sky the seven stars of the Big Dipper glow
 // in and blaze on HOKUTO SHICHISEI; the constellation draws itself, handle
 // to bowl, and closes the bowl. Alcor, the death omen star, kindles red
-// beside Mizar. Ken strikes seven points. HE IS ALREADY DEAD: the held
-// moment, the thug throbbing at 1.3 Hz. NANI?!: he jolts, then swells,
+// beside Mizar. Ken strikes seven points. HE IS ALREADY DEAD: the world
+// stops, the sky going dark, the Dipper dimming and Ken turning his back,
+// and the thug's heart beats lub-dub, slower each time, the phrase held for
+// the whole moment. NANI?!: he jolts, then swells,
 // cracking yellow, faster, until HIDEBU!: the burst. The sky clears and a
 // new thug walks in.
 //
@@ -67,6 +69,19 @@ const KEN_DRAW = [
   'X...X.',
   'X....X',
 ]
+// Ken with his back to the thug: his head turned away to the left, arms down.
+const KEN_AWAY = [
+  '.XX...',
+  '.XX...',
+  '..XXX.',
+  '..XX.X',
+  '..XX..',
+  '.X..X.',
+  '.X..X.',
+  'X....X',
+]
+// The held moment's heartbeat: lub-dub at each start, the rest growing longer.
+const LUB_DUB = [0, 8, 17, 27]
 const BIG_FIST = [
   '.XXXX..',
   'XXXXXX.',
@@ -282,19 +297,22 @@ function sevenStars(c: Canvas, f: number, seed: number) {
   const kx = 30 // Ken's left dot, on 32 columns only
 
   // The blood red sky over the Dipper, rising from an ember on the first
-  // frame; the burst's wash covers it a while.
+  // frame; the burst's wash covers it a while. From HE IS ALREADY DEAD to the
+  // burst the world stops: the sky goes dark and the Dipper dims.
+  const stopped = f >= HELD && f < HIDEBU
   for (let col = 0; col < W; col++) {
-    c.bg(col, 0, f === 0 ? c.mix('hot', 'base', 0.75) : c.mix('deep', 'base', 0.5))
+    c.bg(col, 0, f === 0 ? c.mix('hot', 'base', 0.75) : c.mix('deep', 'base', stopped ? 0.75 : 0.5))
     if (col <= (ox >> 1) + 10) c.bg(col, 1, c.mix('deep', 'base', 0.75))
   }
   if (f >= HIDEBU) burstBack(c, f - HIDEBU, cx)
 
   let body: Ink = 'deep', point: Ink = 'spark', swell = 0, cracks = 0
   if (f >= HELD && f < NANI) {
-    // The held moment: a throb every 6 frames.
-    const out = (f - HELD) % 6 < 3
-    body = out ? 'hot' : 'deep'
-    point = out ? 'spark' : c.mix('spark', 'base', 0.5)
+    // The held moment: a heartbeat, lub-dub, slower each time.
+    const k = f - HELD
+    const beat = LUB_DUB.some(at => k === at || k === at + 2)
+    body = beat ? 'hot' : 'deep'
+    point = beat ? 'spark' : c.mix('spark', 'base', 0.5)
   } else if (f >= NANI && f < HIDEBU) {
     // NANI?!: a jolt, then the swell, throbbing every 4 frames.
     const k = f - NANI
@@ -314,18 +332,19 @@ function sevenStars(c: Canvas, f: number, seed: number) {
     if (f < from || f >= gone) return
     const dots = line(star(a), star(b))
     const shown = Math.min(dots.length, Math.ceil(dots.length * (f - from + 1) / 3))
-    dots.slice(0, shown).forEach(([x, y]) => sky(x, y, 'cool', 1))
+    dots.slice(0, shown).forEach(([x, y]) => sky(x, y, stopped ? c.mix('cool', 'base', 0.5) : 'cool', 1))
   })
   STARS.forEach((_, i) => {
     const [x, y] = star(i)
     if (f < i || f >= HIDEBU + 26) return
     if (f >= BLAZE && f < BLAZE + 4) c.bg(x >> 1, y >> 2, c.mix('spark', 'base', 0.5))
-    sky(x, y, f < BLAZE ? c.mix('spark', 'base', 0.5) : 'spark', 5)
+    sky(x, y, f < BLAZE || stopped ? c.mix('spark', 'base', 0.5) : 'spark', 5)
   })
-  // Alcor kindles red beside Mizar from frame 30 and pulses.
+  // Alcor kindles red beside Mizar from frame 30 and pulses, holding still
+  // while the world is stopped.
   if (f >= 30 && f < HIDEBU + 20) {
     const [x, y] = [ox + ALCOR[0], ALCOR[1]]
-    c.bg(x >> 1, y >> 2, c.mix('hot', 'base', Math.floor((f - 30) / 3) % 2 ? 0.5 : 0.25))
+    c.bg(x >> 1, y >> 2, c.mix('hot', 'base', Math.floor(((stopped ? HELD : f) - 30) / 3) % 2 ? 0.5 : 0.25))
     c.put(x, y, 'spark', 6)
   }
 
@@ -333,7 +352,8 @@ function sevenStars(c: Canvas, f: number, seed: number) {
   const strikes = Math.max(0, Math.min(7, Math.floor((f - 30) / 2)))
   if (big) {
     const power = f >= 28 && f < HELD ? 3 : f >= 26 && f < HELD + 2 ? 2 : 0
-    ken(c, kx, f, f >= 28 && f < HELD ? KEN_PUNCH : KEN, power, (kx >> 1) + 2)
+    // Once the world stops he stands still with his back turned, his aura frozen.
+    ken(c, kx, stopped ? HELD : f, stopped ? KEN_AWAY : f >= 28 && f < HELD ? KEN_PUNCH : KEN, power, (kx >> 1) + 2)
     if (f >= 28 && f < HELD) {
       const j = Math.floor((f - 28) / 2)
       const y = (j & 1) * 4 + 1 + (j % 3 === 0 ? 1 : 0)
@@ -373,7 +393,7 @@ export default {
       loop: SEVEN,
       beats: [
         { at: BLAZE, phrase: 'HOKUTO SHICHISEI' },
-        { at: HELD, phrase: 'HE IS ALREADY DEAD' },
+        { at: HELD, phrase: 'HE IS ALREADY DEAD', hold: NANI - HELD },
         { at: NANI, phrase: 'NANI?!' },
         { at: HIDEBU, phrase: 'HIDEBU!' },
       ],
